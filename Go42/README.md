@@ -24,7 +24,7 @@ function，method，interface，type等词语是程序员们接触比较多的�
 最后，希望更多的人了解和使用Go语言，也希望阅读本书的朋友们多多交流。
 
 
-#### [>>>开始阅读 第一章 Go安装与运行](https://github.com/ffhelicopter/Go42/blob/master/content/42_01_install.md)
+#### [>>>开始阅读 第一章 Go安装与运行](https://github.com/longpi1/Reading-notes/blob/main/Go42/content/42_01_安装.md)
 
 
 
