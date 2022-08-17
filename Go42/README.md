@@ -1,14 +1,7 @@
-
-[![travis](https://travis-ci.org/ffhelicopter/go42.svg?branch=master)](https://travis-ci.org/ffhelicopter/go42)
-[![Go Report Card](https://goreportcard.com/badge/github.com/ffhelicopter/go42)](https://goreportcard.com/report/github.com/ffhelicopter/go42)
-
-# [《Go语言四十二章经》](https://github.com/ffhelicopter/Go42/blob/master/SUMMARY.md "《Go语言四十二章经》")
-
-作者：ffhelicopter（李骁）  时间：2018-04-15
+# 参考[《Go语言四十二章经》](https://github.com/ffhelicopter/Go42/blob/master/SUMMARY.md "《Go语言四十二章经》")
 
 
 ## 前言
-写《Go语言四十二章经》，纯粹是因为开发过程中碰到过的一些问题，踩到过的一些坑，感觉在Go语言学习使用过程中，有必要深刻理解这门语言的核心思维、清晰掌握语言的细节规范以及反复琢磨标准包代码设计模式，于是才有了这本书。
 
 Go语言以语法简单、门槛低、上手快著称。但入门后很多人发现要写出地道的、遵循 Go语言思维的代码却是不易。
 
@@ -31,75 +24,7 @@ function，method，interface，type等词语是程序员们接触比较多的�
 最后，希望更多的人了解和使用Go语言，也希望阅读本书的朋友们多多交流。
 
 
-祝各位Gopher们工作开心，愉快编码！
-
-
-## 开始阅读
-
-本书内容在github更新：https://github.com/ffhelicopter/Go42/blob/master/SUMMARY.md<br>
-
-
 #### [>>>开始阅读 第一章 Go安装与运行](https://github.com/ffhelicopter/Go42/blob/master/content/42_01_install.md)
-
-
-## 进阶阅读
-
-《Go语言四十二章经》开源电子书升级版《深入学习Go语言》，在当当，天猫，京东有售，感谢各位对此书的支持与关注!
-
-本书适合初次学习Go语言，以及对Go语言有初步了解的开发者，读者可通过本书努力在尽量短的时间内成长为一名合格的Go语言开发者。
-
-![go.png](https://bkimg.cdn.bcebos.com/pic/77c6a7efce1b9d16940ab8bcfddeb48f8d546419?x-bce-process=image/resize,m_lfit,w_268,limit_1/format,f_jpg)
-
-
-
-## rpcx 框架
-
-最新更新，框架rpcx包含了服务发现、负载均衡、故障转移等服务治理能力，特整理了一些资料来说说这款框架，推荐中小团队使用。
-
-#### [>>> 开始阅读  rpcx 框架](https://github.com/ffhelicopter/Go42/blob/master/content/42_43_rpcx.md)
-
-
-## 最新分享
-
-
-本人在 GitChat 的专栏分享《Gin 框架入门实践》！ [我要报名参加](https://gitbook.cn/gitchat/column/5dab061e7d66831b22aa0b44)
-
-
-本专栏通过对 Gin 框架核心代码的详细解读，分块讲解各个模块的功能与原理，并结合实例深度探讨 Gin 原理与特性。区别于其他教程只讲使用不深入原理分析。
-
-专栏包含大量不同场景下的案例和代码实践，带领读者了解框架的具体使用，有助于读者更深入体会对应模块原理。对某些重要的知识点，专栏进一步进行了更多拓展，以达到读者更清晰理解与掌握知识点。
-
-专栏的安全编程部分，结合 Gin 框架对 CORS 跨域资源共享、CSRF 跨站请求伪造、Cookie 安全、数据有效性、数据渲染的安全性问题等，都做了非常深入的讨论和实践。
-
-目前有关 Web 开发中的安全性问题的讲解很少在框架类教程中出现，这也是本专栏根据实际开发情况，有针对性编写了相关内容，当然， Gin 框架在安全性方面也做的相当不错。
-
-本专栏图文并茂，课程中的重要实例代码均有完整代码可供测试。
-
-
-
-另外本人在 GitChat 有分享 [《Go 语言错误与异常处理》](https://gitbook.cn/gitchat/activity/5d13238387e6304e23d91260)主要介绍 Go 语言中错误与异常，进一步深入探讨错误与异常的区别以及实际开发中合适的处理方式。
-
-带堆栈的错误信息在开发与bug追踪中都十分重要，可以帮助程序员更快定位错误发生位置。它拥有比标准库中错误处理更丰富的处理方式，可谓程序员调试之牛刀。
-
-
-
-
-## 交流
-
-虽然本书中例子都经过实际运行，但难免出现错误和不足之处，烦请您指出；如有建议也欢迎交流。
-
-
-感谢以下网友对本书提出的修改建议： Joyboo 、林远鹏、Mr_RSI、magic-joker、3lackrush、Jacky2、tanjibo、wisecsj、eternal-flame-AD、isLishude、morya、adophper、ivanberry、xjl662750、huanglizhuo、xianyunyh、荣怡、pannz、yaaaaaaaan、sidbusy、NHibiki、awkj、yufy、lazyou、 liov 、飞翔不能的翔哥、橡_皮泥、刘冲_54ac、henng、slarsar
-
-
-
-## 更新
-
-本书会在GitHub持续更新！为了更简单表述清楚，某些章节的内容我会根据情况随时更新，也包括新发现的错误和缺陷。
-
-随Go语言版本的不断迭代，本书也会不断修改完善相关章节的内容和代码。
-
-这里提醒读者朋友，在GitHub将会在第一时间得到本书的最新更新，所以如发现任何问题还请先在GitHub上看看最新文章的情况。
 
 
 
