@@ -1,22 +1,12 @@
 # Kubernetes 网络模型基础
 
+## 介绍
+
 Kubernetes 是为运行分布式集群而建立的，分布式系统的本质使得网络成为 Kubernetes 的核心和必要组成部分，了解 Kubernetes 网络模型可以使你能够正确运行、监控和排查应用程序故障。
 
 ![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgxXjFVCRuH7qy64U3chiaiahczklvicicPLs7TpRKqLNds92VMUXiaEC2iaJA/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
 
 网络是非常复杂的，拥有许多概念，对于不熟悉这个领域的用户来说，这可能会有一定的难度，这里面有很多概念需要理解，并且还需要把这些概念整合起来形成一个连贯的整体，比如网络命名空间、虚拟接口、IP 转发、NAT 等概念。
-
-![img](http://mmbiz.qpic.cn/mmbiz_png/8ZFzrRjqatrP1H2ykr2xId1T1xNrZaVFuqGgQ3ycnJylh6A6h0vp2yqynejepUBcBufs3NWFKxl1QPsRxJ61YQ/0?wx_fmt=png&wx_head=1)
-
-**奇妙的Linux世界**
-
-这里是 Linux 爱好者的聚集地，不仅有各种硬核干货文章和新奇内容推荐，还常常有福利红包等你来领哟。快快加入我们，一起愉快玩耍吧！
-
-221篇原创内容
-
-
-
-公众号
 
 Kubernetes 中对任何网络实现都规定了以下的一些要求：
 
@@ -37,7 +27,9 @@ Kubernetes 中对任何网络实现都规定了以下的一些要求：
 
 通常情况下我们将虚拟机中的网络通信视为直接与以太网设备进行交互，如图1所示。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_jpg/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgCV9T9zxQ7pfMHEiauW3V6z9TiaUIrm4TfdVibb5hNJMJO7OticAOK1v6Ng/640?wx_fmt=jpeg&wxfrom=5&wx_lazy=1&wx_co=1)图1.网络设备的理想视图
+![图片](https://mmbiz.qpic.cn/mmbiz_jpg/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgCV9T9zxQ7pfMHEiauW3V6z9TiaUIrm4TfdVibb5hNJMJO7OticAOK1v6Ng/640?wx_fmt=jpeg&wxfrom=5&wx_lazy=1&wx_co=1)
+
+​                                                                                                                **图1.网络设备的理想视图**
 
 实际的情况肯定比这要复杂，在 Linux 中，每个正在运行的进程都在一个网络命名空间内进行通信，该命名空间提供了一个具有自己的路由、防火墙规则和网络设备的逻辑网络栈，从本质上讲，网络命名空间为命名空间内的所有进程提供了一个全新的网络堆栈。
 
@@ -60,11 +52,15 @@ ns1
 
 默认情况下，Linux 将为每个进程分配到 root network namespace，以提供访问外部的能力，如图2所示。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgoTjJmceqShbEoZ6ibwMOA1VZOV2yYQmN6z9BovoSiafExusQt9dpyu0A/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)图2.root network namespace
+![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgoTjJmceqShbEoZ6ibwMOA1VZOV2yYQmN6z9BovoSiafExusQt9dpyu0A/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+
+​                                                                                                                **图2.root network namespace**
 
 对于 Docker 而言，一个 Pod 会被构建成一组共享网络命名空间的 Docker 容器，Pod 中的容器都有相同的 IP 地址和端口空间，它们都是通过分配给 Pod 的网络命名空间来分配的，并且可以通过 localhost 访问彼此，因为它们位于同一个命名空间中。这是使用 Docker 作为 Pod 容器来实现的，它持有网络命名空间，而应用容器则通过 Docker 的 `-net=container:sandbox-container` 功能加入到该命名空间中，图3显示了每个 Pod 如何由共享网络命名空间内的多个 Docker 容器（`ctr*`）组成的。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgx14N89bgPKjXwqTDV2ia9FbbLyLP2fGEvBrMUT5U4ibvq87nySmZ1xTQ/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)图3.每个 Pod 的网络命名空间
+![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgx14N89bgPKjXwqTDV2ia9FbbLyLP2fGEvBrMUT5U4ibvq87nySmZ1xTQ/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+
+​                                                                                                               **图3.每个 Pod 的网络命名空间**
 
 此外 Pod 中的容器还可以访问共享卷，这些卷被定义为 Pod 的一部分，并且可以挂载到每个容器的文件系统中。
 
@@ -74,7 +70,9 @@ ns1
 
 从 Pod 的角度来看，它存在于自己的网络命名空间中，需要与同一节点上的其他网络命名空间进行通信。值得庆幸的时候，命名空间可以使用 Linux 虚拟以太网设备或由两个虚拟接口组成的 `veth` 对进行连接，这些虚拟接口可以分布在多个命名空间上。要连接 Pod 命名空间，我们可以将 veth 对的的一侧分配给 root network namespace，将另一侧分配给 Pod 的网络命名空间。每个 veth 对就像一根网线，连接两侧并允许流量在它们之间流动。这种设置可以复制到节点上的任意数量的 Pod。图4显示了连接虚拟机上每个 Pod 的 root network namespace 的 veth 对。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgiav7goAhdM2Fg40BpBNia6OmnP1yZJ0O2aD9ajK98r46EfkGxIfMYJzQ/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)图4.Pod 的 veth 对
+![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgiav7goAhdM2Fg40BpBNia6OmnP1yZJ0O2aD9ajK98r46EfkGxIfMYJzQ/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+
+​                                                                                                                  **图4.Pod 的 veth 对**
 
 现在 Pod 都有自己的网络命名空间，这样它们就有自己的网络设备和 IP 地址，并且它们连接到节点的 root 命名空间，现在我们希望 Pod 能够通过 root 命名空间进行通信，那么我们将要使用一个网络 *bridge（网桥）*来实现。
 
@@ -82,13 +80,17 @@ Linux bridge 是用纯软件实现的虚拟交换机，有着和物理交换机�
 
 Bridges 实现了 ARP 协议来发现与指定 IP 地址关联的链路层 MAC 地址。当 bridge 接收到数据帧的时候，bridge 将该帧广播给所有连接的设备（原始发送者除外），响应该帧的设备被存储在一个查找表中，未来具有相同 IP 地址的通信使用查找表来发现正确的 MAC 地址来转发数据包。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgaC5x2L2NGESEDibAC2J9Y4cSics1zvr3vlQEubR88po8icKdIZnzVDGag/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)图5.使用桥接连接命名空间
+![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgaC5x2L2NGESEDibAC2J9Y4cSics1zvr3vlQEubR88po8icKdIZnzVDGag/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+
+​                                                                                                          **图5.使用桥接连接命名空间**
 
 ### 同节点 Pod 通信
 
 网络命名空间将每个 Pod 隔离到自己的网络堆栈中，虚拟以太网设备将每个命名空间连接到根命名空间，以及一个将命名空间连接在一起的网桥，这样我们就准备好在同一节点上的 Pod 之间发送流量了，如下图6所示。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgbMZZruJE0xAuacLiaia0y3HtN4ic5QJWsCEEpHgfoWsQMboak31eaeXOg/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)同节点上的Pod间的数据包移动
+![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgbMZZruJE0xAuacLiaia0y3HtN4ic5QJWsCEEpHgfoWsQMboak31eaeXOg/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)
+
+​                                                                                                                                   **图6.同节点上的Pod间的数据包移动**
 
 这上图中，pod1 向自己的网络设备 `eth0` 发送了一个数据包，对于 pod1 来说，`eth0` 通过虚拟网络设备连接到 root netns 的 `veth0(1)`，网桥 `cbr0` 被配置为与 `veth0` 一端相连，一旦数据包到达网桥，网桥就会使用 ARP 协议将数据包发送到 `veth1(3)`。当数据包到达虚拟设备 `veth1` 时，它被直接转发到 pod2 的命名空间内的 `eth0(4)` 设备。这整个过程中，每个 Pod 仅与 `localhost` 上的 `eth0` 进行通信，流量就会被路由到正确的 Pod。
 
@@ -100,11 +102,11 @@ Kubernetes 的网络模型决定了 Pod 必须可以通过其 IP 地址跨节点
 
 通常集群中的每个节点都分配有一个 `CIDR`，用来指定该节点上运行的 Pod 可用的 IP 地址。一旦以 `CIDR` 为目的地的流量到达节点，节点就会将流量转发到正确的 Pod。图7展示了两个节点之间的网络通信，假设网络可以将 `CIDR` 中的流量转发到正确的节点。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgvHLovL3sZSEtEia3tKWIDCS43V6PLN4kxIjdLnMugfW32fl4ZfHmwSg/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)图7.不同节点上的Pod间通信
+![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgvHLovL3sZSEtEia3tKWIDCS43V6PLN4kxIjdLnMugfW32fl4ZfHmwSg/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)
+
+​                                                                                                                                   **图7.不同节点上的Pod间通信**
 
 上图一样和图6相同的地方开始请求，但是这次目标 Pod（绿色标注）与源 Pod（蓝色标注）位于不同的节点上。数据包首先通过 pod1 的网络设备发送，该设备与 root netns（1）中的虚拟网络设备配对，最终数据包到达 root netns 的网桥（2）上。
-
-
 
 这个时候网桥上的 ARP 会失败，因为与网桥相连的没有正确的数据包 MAC 地址。一旦失败，网桥会将数据包发送到默认路由上 - root netns 的 `eth0` 设备，此时就会路由离开节点，进入网络（3）。我们现在假设网络可以根据分配给节点的 `CIDR` 将数据包路由到正确的节点（4）。数据包进入目标节点的 root netns（VM2 上的 eth0），这那里它通过网桥路由到正确的虚拟设备（5）。最后，路由通过位于 pod4 的命名空间（6）中的虚拟设备 `eth0` 来完成。一般来说，每个节点都知道如何将数据包传递给其内部运行的 Pod，一旦数据包到达目标节点，数据包的流动方式与同一节点上的 Pod 间通信方式一样。
 
@@ -136,13 +138,17 @@ Kubernetes 新版本已经提供了另外一个用于集群负载均衡的选项
 
 ### Pod 到 Service 通信
 
-![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgO80nIibbUc6npiblqjuW8RAqlU6MhtBDUSRCwf4D1K81Wc9jdzwhnr8w/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)图8. Pod 与 Service 之间通信
+![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgO80nIibbUc6npiblqjuW8RAqlU6MhtBDUSRCwf4D1K81Wc9jdzwhnr8w/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)
+
+​                                                                                                                                     **图8. Pod 与 Service 之间通信**
 
 当这 Pod 和 Service 之间路由一个数据包时，流量和以前开始的方式一样，数据包首先通过连接到 Pod 的网络命名空间（1）的 `eth0` 离开 Pod，。然后它通过虚拟网络设备到达网桥（2）。网桥上运行的 ARP 是不知道 Service 地址的，所以它通过默认路由 `eth0`（3）将数据包传输出去。到这里会有一些不同的地方了，在 `eth0` 接收之前，该数据包会被 iptables 过滤，在收到数据包后，iptables 使用 kube-proxy 在节点上安装的规则来响应 Service 或 Pod 事件，将数据包的目的地从 Service VIP 改写为特定的 Pod IP（4）。该数据包现在就要到达 pod4 了，而不是 Service 的 VIP，iptables 利用内核的 `conntrack` 工具来记录选择的 Pod，以便将来的流量会被路由到相同的 Pod。从本质上讲，iptables 直接从节点上完成了集群内的负载均衡，然后流量流向 Pod，剩下的就和前面的 Pod 到 Pod 通信一样的了（5）。
 
 ### Service 到 Pod 通信
 
-![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgtV3KndqR2yoKUjoRlicMAwVOAnRzQn1lzibNE7ndyQpNHQ3UoeF0toiag/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)图9.在 Service 和 Pod 之间通信
+![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgtV3KndqR2yoKUjoRlicMAwVOAnRzQn1lzibNE7ndyQpNHQ3UoeF0toiag/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)
+
+​                                                                                                                                              **图9.在 Service 和 Pod 之间通信**
 
 相应的回包的时候，收到该数据包的 Pod 将响应，将源 IP 标记为自己的 IP，将目标 IP 标记为最初发送数据包的 Pod(1)。进入节点后，数据包流经 iptables，它使用 `conntrack` 记住它之前所做的选择，并将数据包的源重写为 Service 的 VIP 而不是现在 Pod 的 IP(2)。从这里开始，数据包通过网桥流向与 Pod 的命名空间配对的虚拟网络设备 (3)，然后流向我们之前看到的 Pod 的虚拟网络设备 (4)。
 
@@ -165,7 +171,9 @@ Kubernetes 新版本已经提供了另外一个用于集群负载均衡的选项
 
 在下图中，数据包源自 Pod 的命名空间 (1)，并经过连接到根命名空间 (2) 的 veth 对。一旦进入根命名空间，数据包就会从网桥移动到默认设备，因为数据包上的 IP 与连接到网桥的任何网段都不匹配。在到达根命名空间的网络设备 (3) 之前，iptables 会破坏数据包 (3)。在这种情况下，数据包的源 IP 地址是 Pod，如果我们将源保留为 Pod，外网网关将拒绝它，因为网关 NAT 只了解连接到 VM 的 IP 地址。解决方案是**让 iptables 执行源 NAT** —— 更改数据包源，使数据包看起来来自 VM 而不是 Pod。有了正确的源 IP，数据包现在可以离开 VM (4) 并到达外网网关 (5) 了。外网网关将执行另一个 NAT，将源 IP 从 VM 内部 IP 重写为公网IP。最后，数据包将到达互联网上 (6)。在返回的路上，数据包遵循相同的路径，并且任何源 IP 的修改都会被取消，这样系统的每一层都会接收到它理解的 IP 地址：节点或 VM 级别的 VM 内部，以及 Pod 内的 Pod IP命名空间。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgGaUDVlu2VesbE999GjqtA1WthWLBRF47ZDQ6XttQMqkjq9fc1YE3kg/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)图10.从Pod到互联网通信
+![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgGaUDVlu2VesbE999GjqtA1WthWLBRF47ZDQ6XttQMqkjq9fc1YE3kg/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)
+
+​                                                                                                                                       **图10.从Pod到互联网通信**
 
 ### 入流量
 
@@ -186,7 +194,9 @@ Kubernetes 新版本已经提供了另外一个用于集群负载均衡的选项
 
 下图展示的就是托管 Pod 的三个节点前面的负载均衡器。传入流量（1）指向 Service 的 LoadBalancer，一旦 LoadBalancer 接收到数据包（2），它就会随机选择一个节点。我们这里的示例中，我们选择了没有运行 Pod 的节点 VM2（3）。在这里，运行在节点上的 iptables 规则将使用 kube-proxy 安装到集群中的内部负载均衡规则，将数据包转发到正确的 Pod。iptables 执行正确的 NAT 并将数据包转发到正确的 Pod（4）。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgjicHYRZia3uYzyTenTbsnsCcUaKZYt1PeIj69MYh8uNic3oziaicIZeFKmQ/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)图11.外网访问 Service
+![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgjicHYRZia3uYzyTenTbsnsCcUaKZYt1PeIj69MYh8uNic3oziaicIZeFKmQ/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)
+
+​                                                                                                                      **图11.外网访问 Service**
 
 **Ingress 控制器**
 
@@ -196,7 +206,9 @@ Kubernetes 新版本已经提供了另外一个用于集群负载均衡的选项
 
 在 AWS 环境中，ALB Ingress 控制器使用 AWS 的七层应用程序负载均衡器提供 Kubernetes 入口。下图详细介绍了此控制器创建的 AWS 组件，它还演示了 Ingress 流量从 ALB 到 Kubernetes 集群的路由。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgdr38KkXPhd9AKtGnrYhn2SxGDKy0fbjFWIrfrgzXaXCzjicEIjrWzRg/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)图12.Ingress 控制器
+![图片](https://mmbiz.qpic.cn/mmbiz_png/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgdr38KkXPhd9AKtGnrYhn2SxGDKy0fbjFWIrfrgzXaXCzjicEIjrWzRg/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+
+​                                                                                                                   **图12.Ingress 控制器**
 
 创建后，(1) Ingress Controller 会 watch 来自 Kubernetes APIServer 的 Ingress 事件。当它找到满足其要求的 Ingress 资源时，它会开始创建 AWS 资源。AWS 将 Application Load Balancer (ALB) (2) 用于 Ingress 资源。负载均衡器与用于将请求路由到一个或多个注册节点的 TargetGroup一起工作。(3) 在 AWS 中为 Ingress 资源描述的每个唯一 Kubernetes Service 创建 TargetGroup。(4) Listener 是一个 ALB 进程，它使用你配置的协议和端口检查连接请求。Listener 由 Ingress 控制器为你的 Ingress 资源中描述的每个端口创建。最后，为 Ingress 资源中指定的每个路径创建 TargetGroup 规则。这可以保证到特定路径的流量被路由到正确的 Kubernetes 服务上 (5)。
 
@@ -206,7 +218,9 @@ Kubernetes 新版本已经提供了另外一个用于集群负载均衡的选项
 
 部署 Service 后，你使用的云提供商将为你创建一个新的 Ingress 负载均衡器 (1)。因为负载均衡器不支持容器，一旦流量到达负载均衡器，它就会通过为你的服务端口分布在组成集群 (2) 的整个节点中。每个节点上的 iptables 规则会将来自负载均衡器的传入流量路由到正确的 Pod (3)。Pod 到客户端的响应将返回 Pod 的 IP，但客户端需要有负载均衡器的 IP 地址。正如我们之前看到的，iptables 和 conntrack 用于在返回路径上正确重写 IP。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgB6f7ZsmsiamnMF10mxPp1NvlmMw5sHGfqAQ0MKnkYTxlMKpjkI6Gctg/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)图13.从 Ingress 到 Service
+![图片](https://mmbiz.qpic.cn/mmbiz_gif/z9BgVMEm7YtugibqBH8vj7OvmDx0O2fwgB6f7ZsmsiamnMF10mxPp1NvlmMw5sHGfqAQ0MKnkYTxlMKpjkI6Gctg/640?wx_fmt=gif&wxfrom=5&wx_lazy=1)
+
+​                                                                                                                                               **图13.从 Ingress 到 Service**
 
 ## 总结
 
