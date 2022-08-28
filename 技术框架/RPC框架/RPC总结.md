@@ -34,9 +34,11 @@
 
 
 ## RPC协议与HTTP的设计区别
+
 相对于 HTTP 的用处，RPC 更多的是负责应用间的通信，所以性能要求相对更高。但 HTTP 协议的数据包大小相对请求数据本身要大很多，又需要加入很多无用的内容，比如换行符号、回车符等；还有一个更重要的原因是，HTTP 协议属于无状态协议，客户端无法对请求和响应进行关联，每次请求都需要重新建立连接，响应完成后再关闭连接。因此，对于要求高性能的 RPC 来说，HTTP 协议基本很难满足需求，所以 RPC 会选择设计更紧凑的私有协议。
 
 ## 对象如何在网络中传输
+
 ### 序列化与反序列化
 
 网络传输的数据必须是二进制数据，但调用方请求的出入参数都是对象。对象是不能直接在网络中传输的，所以我们需要提前把它转成可传输的二进制，并且要求转换算法是可逆的，这个过程叫做“序列化”。这时，服务提供方就可以正确地从二进制数据中分割出不同的请求，同时根据请求类型和序列化类型，把二进制的消息体逆向还原成请求对象，这个过程称之为“反序列化”。
@@ -143,9 +145,8 @@ Protobuf 是 Google 公司内部的混合语言数据标准，是一种轻便、
 
 ![img](https://static001.geekbang.org/resource/image/50/75/503fabeeae226a722f83e9fb6c0d4075.jpg?wh=4214*1803)
 
-​                                                                                                                              **基于ZooKeeper服务发现结构图**
 
-![image-20220720215032563](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220720215032563.png)
+![实践.png](https://s2.loli.net/2022/08/28/9rWbXJjnkFMGdgL.png)
 
 #### 基于消息总线的最终一致性的注册中心
 
@@ -166,15 +167,16 @@ ZooKeeper 的一大特点就是强一致性，ZooKeeper 集群的每个节点的
 
 为了性能，采用两级缓存，注册中心和消费者的内存缓存，通过异步推拉模式来确保最终一致性。
 
-![image-20220720220716266](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220720220716266.png)
+![image-20220720220716266.png](https://s2.loli.net/2022/08/28/OfNVTmrCbYEkohq.png)
+![image-20220720220817173.png](https://s2.loli.net/2022/08/28/g4dzHEyWfrpRhDK.png)
 
-![image-20220720220817173](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220720220817173.png)
 
 ### 健康检测
 
 **Script Check、HTTP Check、TCP Check、TTL Check等**
 
 #### consul做法
+
 **TTL/TCP？**
 
 #### etcd做法？
@@ -205,7 +207,8 @@ ZooKeeper 的一大特点就是强一致性，ZooKeeper 集群的每个节点的
 
 **需求：**
 
-![image-20220723103551398](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220723103551398.png)
+
+![需求.png](https://s2.loli.net/2022/08/28/vAXShkqrxu8e2pK.png)
 
 #### 什么是负载均衡？
 
@@ -374,7 +377,9 @@ RPC 是解决分布式系统通信问题的一大利器，而分布式系统的�
 
 通过分组的方式人为地给不同的调用方划分出不同的小集群，从而实现调用方流量隔离的效果，保障我们的核心业务不受非核心业务的干扰。但我们在考虑问题的时候，不能顾此失彼，不能因为新加一个的功能而影响到原有系统的稳定性。
 
-![image-20220723163023594](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220723163023594.png)
+#### 实践案例：
+![实现.png](https://s2.loli.net/2022/08/28/KPjgxwin6sIVuby.png)
+
 
 
 
@@ -433,7 +438,9 @@ RPC 是解决分布式系统通信问题的一大利器，而分布式系统的�
 
 “优雅关闭”这个概念除了在 RPC 里面有，在很多框架里面也都挺常见的，比如像我们经常用的应用容器框架 Tomcat。Tomcat 关闭的时候也是先从外层到里层逐层进行关闭，先保证不接收新请求，然后再处理关闭前收到的请求。
 
-![image-20220723212313198](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220723212313198.png)
+##### 相关解释：
+![image-20220723212313198.png](https://s2.loli.net/2022/08/28/qUCtZw2Ps7EdYDu.png)
+
 
 
 
@@ -463,25 +470,26 @@ RPC 是解决分布式系统通信问题的一大利器，而分布式系统的�
 
 解决方案：
 
--  在应用启动加载、解析 Bean 的时候，如果遇到了 RPC 服务的 Bean，只先把这个 Bean 注册到 Spring-BeanFactory 里面去，而并不把这个 Bean 对应的接口注册到注册中心，只有等应用启动完成后，才把接口注册到注册中心用于服务发现，从而实现让服务调用方延迟获取到服务提供方地址。这样是可以保证应用在启动完后才开始接入流量的，但其实这样做，我们还是没有实现最开始的目标。因为这时候应用虽然启动完成了，但并没有执行相关的业务代码，所以 JVM 内存里面还是冷的。如果这时候大量请求过来，还是会导致整个应用在高负载模式下运行，从而导致不能及时地返回请求结果。而且在实际业务中，一个服务的内部业务逻辑一般会依赖其它资源的，比如缓存数据。如果我们能在服务正式提供服务前，先完成缓存的初始化操作，而不是等请求来了之后才去加载，我们就可以降低重启后第一次请求出错的概率。
+- 在应用启动加载、解析 Bean 的时候，如果遇到了 RPC 服务的 Bean，只先把这个 Bean 注册到 Spring-BeanFactory 里面去，而并不把这个 Bean 对应的接口注册到注册中心，只有等应用启动完成后，才把接口注册到注册中心用于服务发现，从而实现让服务调用方延迟获取到服务提供方地址。这样是可以保证应用在启动完后才开始接入流量的，但其实这样做，我们还是没有实现最开始的目标。因为这时候应用虽然启动完成了，但并没有执行相关的业务代码，所以 JVM 内存里面还是冷的。如果这时候大量请求过来，还是会导致整个应用在高负载模式下运行，从而导致不能及时地返回请求结果。而且在实际业务中，一个服务的内部业务逻辑一般会依赖其它资源的，比如缓存数据。如果我们能在服务正式提供服务前，先完成缓存的初始化操作，而不是等请求来了之后才去加载，我们就可以降低重启后第一次请求出错的概率。
 
 - 利用服务提供方把接口注册到注册中心的那段时间。我们可以在服务提供方应用启动后，接口注册到注册中心前，预留一个 Hook 过程，让用户可以实现可扩展的 Hook 逻辑。用户可以在 Hook 里面模拟调用逻辑，从而使 JVM 指令能够预热起来，并且用户也可以在 Hook 里面事先预加载一些资源，只有等所有的资源都加载完成后，最后才把接口注册到注册中心。整个应用启动过程如下图所示：
 
   ![img](https://static001.geekbang.org/resource/image/3c/bd/3c84f9cf6745f2d50e34bd8431c84abd.jpg?wh=3374*893)
 
 ​                                                                                                                **启动顺序图**
+##### 相关解释：
+![image-20220723225147106.png](https://s2.loli.net/2022/08/28/HhWuQ9j2KxJ3Ayt.png)
 
-![image-20220723225147106](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220723225147106.png)
+
 
 
 
 
 
 ### 其他
+![image-20220724150651258.png](https://s2.loli.net/2022/08/28/FZ1Tlig6GQbLCvE.png)
 
-![image-20220724150651258](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220724150651258.png)
-
-![image-20220724150622961](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220724150622961.png)
+![image-20220724150622961.png](https://s2.loli.net/2022/08/28/tT46nkNsdzK9Vmw.png)
 
 
 
@@ -497,9 +505,9 @@ RPC 是解决分布式系统通信问题的一大利器，而分布式系统的�
 
 ##### 方法 2：借助分布式链路跟踪
 
-![image-20220724163935463](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220724163935463.png)
+![image-20220724163935463.png](https://s2.loli.net/2022/08/28/ldO1BCDz3xqs7ay.png)
 
 #### 流量回放
 
-![image-20220724170611177](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220724170611177.png)
 
+![image-20220724170611177.png](https://s2.loli.net/2022/08/28/Cq24cT78wnWaYRz.png)
