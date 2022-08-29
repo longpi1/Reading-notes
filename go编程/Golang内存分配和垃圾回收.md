@@ -99,9 +99,13 @@ go内存会分成堆区（Heap）和栈区（Stack）两个部分，程序在运
 
 ### 可达性分析
 对象引用链：通过一系列的称为"GCRoots"的对象作为起始点，从这些节点开始向下搜索，搜索所走过的路径称为引用链(Reference Chain) ，如果一个对象到GCRoots没有任何引用链相连，或者用图论的话来说，就是，从GCRoots到这个对象不可达时，则证明此对象是不可用的。
+
 根对象在垃圾回收的术语中又叫做根集合，它是垃圾回收器在标记过程时最先检查的对象，包括：
+
 1.全局变量：程序在编译期就能确定的那些存在于程序整个生命周期的变量。
+
 2.执行栈：每个 goroutine 都包含自己的执行栈，这些执行栈上包含栈上的变量及指向分配的堆内存区块的指针。
+
 3.寄存器：寄存器的值可能表示一个指针，参与计算的这些指针可能指向某些赋值器分配的堆内存区块。
 ![在这里插入图片描述](https://img-blog.csdnimg.cn/20200801163955410.png?x-oss-process=image/watermark,type_ZmFuZ3poZW5naGVpdGk,shadow_10,text_aHR0cHM6Ly9ibG9nLmNzZG4ubmV0L3FxXzQyMDA5MjYy,size_16,color_FFFFFF,t_70)
 
