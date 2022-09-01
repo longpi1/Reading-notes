@@ -30,7 +30,7 @@
 
 ## RPC注意点
 
-![image-20220716134042279](C:\Users\longp\AppData\Roaming\Typora\typora-user-images\image-20220716134042279.png)
+![image-20220716134042279.png](https://s2.loli.net/2022/08/28/c19JKY4lWEjf3y7.png)
 
 
 ## RPC协议与HTTP的设计区别
