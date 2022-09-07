@@ -13,7 +13,7 @@
 
 Go 里面的变量是**值语义**，这个跟 C/C++是一脉相承的。比如一个结构体变量赋值给另外一个变量就是一次内存拷贝，而不是只拷贝一个指针，因此需要指针来表达引用语义，关于拷贝的具体实现可以了解[直接值部与间接值部的实现](https://gfw.go101.org/article/value-part.html)。
 
-关于值语义：**值语义(value semantics)**指的是对象的拷贝与原对象无关，就像拷贝 int 一样。C++ 的内置类型(bool/int/double/char)都是值语义，标准库里的 complex<> 、pair<>、vector<>、map<>、string 等等类型也都是值语意，拷贝之后就与原对象脱离关系。同样，Java 语言的 primitive types 也是值语义。
+关于值语义(value semantics)：**值语义**指的是对象的拷贝与原对象无关，就像拷贝 int 一样。C++ 的内置类型(bool/int/double/char)都是值语义，标准库里的 complex<> 、pair<>、vector<>、map<>、string 等等类型也都是值语意，拷贝之后就与原对象脱离关系。同样，Java 语言的 primitive types 也是值语义。
 
 ## 优点
 
