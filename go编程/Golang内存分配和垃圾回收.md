@@ -57,6 +57,24 @@ mheap与TCMalloc中的PageHeap类似，它是堆内存的抽象，也是垃圾�
 
 这是栈存储区，每个Goroutine（G）有一个栈。在这里存储了静态数据，包括函数栈帧，静态结构，原生类型值和指向动态结构的指针。这与分配给每个P的mcache不是一回事。
 
+### 7.TCMalloc为什么快：
+
+1.使用了thread cache（线程cache），小块的内存分配都可以从cache中分配，这样再多线程分配内存的情况下，可以减少锁竞争。
+
+2.tcmalloc会为每个线程分配本地缓存，小对象请求可以直接从本地缓存获取，如果没有空闲内存，则从central heap中一次性获取一连串小对象。大对象是直接使用页级分配器（page-level allocator）从Central page Heap中进行分配，即一个大对象总是按页对齐的。tcmalloc对于小内存，按8的整数次倍分配，对于大内存，按4K的整数次倍分配。
+
+3.当某个线程缓存中所有对象的总大小超过2MB的时候，会进行垃圾收集。垃圾收集阈值会自动根据线程数量的增加而减少，这样就不会因为程序有大量线程而过度浪费内存。
+
+4.tcmalloc为每个线程分配一个thread-local cache，小对象的分配直接从thread-local cache中分配。根据需要将对象从CentralHeap中移动到thread-local cache，同时定期的用垃圾回收器把内存从thread-local cache回收到Central free list中。
+
+### 8.总结
+
+ThreadCache（用于小对象分配）：线程本地缓存，每个线程独立维护一个该对象，多线程在并发申请内存时不会产生锁竞争。
+
+CentralCache（Central free list，用于小对象分配）：全局cache，所有线程共享。当thread cache空闲链表为空时，会批量从CentralCache中申请内存；当thread cache总内存超过阈值，会进行内存垃圾回收，将空闲内存返还给CentralCache。
+
+Page Heap（小/大对象）：全局页堆，所有线程共享。对于小对象，当centralcache为空时，会从page heap中申请一个span；当一个span完全空闲时，会将该span返还给page heap。对于大对象，直接从page heap中分配，用完直接返还给page heap。系统内存：当page cache内存用光后，会通过sbrk、mmap等系统调用向OS申请内存。
+
 ### **（二）内存分配**
 
 Go 中的内存分类并不像TCMalloc那样分成小、中、大对象，但是它的小对象里又细分了一个Tiny对象，Tiny对象指大小在1Byte到16Byte之间并且不包含指针的对象。小对象和大对象只用大小划定，无其他区分。
