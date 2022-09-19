@@ -157,7 +157,7 @@ go内存会分成堆区（Heap）和栈区（Stack）两个部分，程序在运
 
 ### Golang的垃圾回收（GC）算法
 
-Golang的垃圾回收（GC）算法使用的是无无分代（对象没有代际之分）、不整理（回收过程中不对对象进行移动与整理）、并发（与用户代码并发执行）的三色标记清扫算法。原因在于：
+Golang的垃圾回收（GC）算法使用的是无分代（对象没有代际之分）、不整理（回收过程中不对对象进行移动与整理）、并发（与用户代码并发执行）的三色标记清扫算法。原因在于：
 
 - 对象整理的优势是解决内存碎片问题以及“允许”使用顺序内存分配器。但 Go 运行时的分配算法基于`tcmalloc`，基本上没有碎片问题。 并且顺序内存分配器在多线程的场景下并不适用。Go 使用的是基于`tcmalloc`的现代内存分配算法，对对象进行整理不会带来实质性的性能提升。
 - 分代`GC`依赖分代假设，即`GC`将主要的回收目标放在新创建的对象上（存活时间短，更倾向于被回收），而非频繁检查所有对象。
@@ -166,7 +166,86 @@ Golang的垃圾回收（GC）算法使用的是无无分代（对象没有代际
 
 
 
-## **三、三色可达性分析**
+## 三、Go的垃圾回收
+
+垃圾回收(Garbage Collection，简称GC)是编程语言中提供的自动的内存管理机制，自动释放不需要的内存对象，让出存储器资源。GC过程中无需程序员手动执行。GC机制在现代很多编程语言都支持，GC能力的性能与优劣也是不同语言之间对比度指标之一。
+
+
+
+Golang在GC的演进过程中也经历了很多次变革，Go V1.3之前的标记-清除(mark and sweep)算法，Go V1.3之前的标记-清扫(mark and sweep)的缺点
+
+- Go V1.5的三色并发标记法
+- Go V1.5的三色标记为什么需要STW
+- Go V1.5的三色标记为什么需要屏障机制(“强-弱” 三色不变式、插入屏障、删除屏障 )
+- Go V1.8混合写屏障机制
+- Go V1.8混合写屏障机制的全场景分析
+
+### （一）、Go V1.3之前的标记-清除(mark and sweep)算法
+
+在Golang1.3之前的时候主要用的普通的标记-清除算法，此算法主要有两个主要的步骤：
+
+- 标记(Mark phase)
+- 清除(Sweep phase)
+
+#### 1 标记清除算法的具体步骤
+
+**第一步**，暂停程序业务逻辑, 分类出可达和不可达的对象，然后做上标记。
+
+![img](https://cdn.nlark.com/yuque/0/2022/png/26269664/1650787873045-d038fe47-4898-4b07-9e16-007bebb6fb9c.png?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_43%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
+
+
+图中表示是程序与对象的可达关系，目前程序的可达对象有对象1-2-3，对象4-7等五个对象。
+
+**第二步**, 开始标记，程序找出它所有可达的对象，并做上标记。如下图所示：
+![img](https://cdn.nlark.com/yuque/0/2022/png/26269664/1650787891194-883ec541-5f13-4934-9274-080e5f44cf5e.png?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_44%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
+
+
+所以对象1-2-3、对象4-7等五个对象被做上标记。
+
+**第三步**,  标记完了之后，然后开始清除未标记的对象. 结果如下。
+
+![img](https://cdn.nlark.com/yuque/0/2022/png/26269664/1650787913616-ecf21ee2-c247-4401-9d3e-5e2fa278726f.png?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_38%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
+
+操作非常简单，但是有一点需要额外注意：mark and sweep算法在执行的时候，需要程序暂停！即 `STW(stop the world)`，STW的过程中，CPU不执行用户代码，全部用于垃圾回收，这个过程的影响很大，所以STW也是一些回收机制最大的难题和希望优化的点。所以在执行第三步的这段时间，程序会暂定停止任何工作，卡在那等待回收执行完毕。
+
+**第四步**, 停止暂停，让程序继续跑。然后循环重复这个过程，直到process程序生命周期结束。
+
+以上便是标记-清除（mark and sweep）回收的算法。
+
+#### 2 标记-清除(mark and sweep)的缺点
+
+标记清除算法明了，过程鲜明干脆，但是也有非常严重的问题。
+
+- STW，stop the world；让程序暂停，程序出现卡顿 **(重要问题)**；
+- 标记需要扫描整个heap；
+- 清除数据会产生heap碎片。
+
+Go V1.3版本之前就是以上来实施的,  在执行GC的基本流程就是首先启动STW暂停，然后执行标记，再执行数据回收，最后停止STW，如图所示。
+
+
+
+
+
+![img](https://cdn.nlark.com/yuque/0/2022/png/26269664/1650787936233-9002040d-220b-4af6-8e51-75d7887569b4.png?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_69%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
+
+
+
+从上图来看，全部的GC时间都是包裹在STW范围之内的，这样貌似程序暂停的时间过长，影响程序的运行性能。所以Go V1.3 做了简单的优化,将STW的步骤提前, 减少STW暂停的时间范围.如下所示
+
+![img](https://cdn.nlark.com/yuque/0/2022/png/26269664/1650788071197-26a29703-0fb5-43f4-afc5-87a35fc78a4b.png?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_69%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10) 
+上图主要是将STW的步骤提前了一步，因为在Sweep清除的时候，可以不需要STW停止，因为这些对象已经是不可达对象了，不会出现回收写冲突等问题。
+
+
+
+但是无论怎么优化，Go V1.3都面临这个一个重要问题，就是**mark-and-sweep 算法会暂停整个程序** 。
+
+
+
+Go是如何面对并这个问题的呢？接下来G V1.5版本 就用**三色并发标记法**来优化这个问题.
+
+
+
+### （二）、Go V1.5的三色并发标记法
 
 为了解决标记清除算法带来的STW问题，Go和Java都会实现三色可达性分析标记算法的变种以缩短STW的时间。三色可达性分析标记算法按“是否被访问过”将程序中的对象分成白色、黑色和灰色：
 
@@ -189,9 +268,43 @@ Golang的垃圾回收（GC）算法使用的是无无分代（对象没有代际
 
 
 
-具体例子如下图所示，经过三色可达性分析，最后白色H为不可达的对象，是需要垃圾回收的对象。
+Golang中的垃圾回收主要应用三色标记法，GC过程和其他用户goroutine可并发运行，但需要一定时间的**STW(stop the world)**，所谓**三色标记法**实际上就是通过三个阶段的标记来确定清楚的对象都有哪些？我们来看一下具体的过程。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/VY8SELNGe94Cjxng5VbT4M7FkUgyAfhpTg82w6bpdH5FmHRajnIIJTbqbEAqJUZYYUw59vkeOzoxYkHjhOPTCg/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+**第一步** , 每次新创建的对象，默认的颜色都是标记为“白色”，如图所示。
+
+
+
+![img](https://cdn.nlark.com/yuque/0/2022/png/26269664/1651035738281-051f7a89-e07f-418c-ad0e-7cb94ef1a3b8.png?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_61%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
+
+
+
+上图所示，我们的程序可抵达的内存对象关系如左图所示，右边的标记表，是用来记录目前每个对象的标记颜色分类。这里面需要注意的是，所谓“程序”，则是一些对象的根节点集合。所以我们如果将“程序”展开，会得到类似如下的表现形式，如图所示。
+
+![img](https://cdn.nlark.com/yuque/0/2022/jpeg/26269664/1651035821416-b0ad644e-ef8e-440a-bbf4-b9e24a7e0257.jpeg?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_55%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
+
+**第二步**, 每次GC回收开始, 会从根节点开始遍历所有对象，把遍历到的对象从白色集合放入“灰色”集合如图所示。
+
+![img](https://cdn.nlark.com/yuque/0/2022/jpeg/26269664/1651035842467-7341846f-6dee-4f8b-ad37-dc9723aa6407.jpeg?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_55%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
+这里 要注意的是，本次遍历是一次遍历，非递归形式，是从程序抽次可抵达的对象遍历一层，如上图所示，当前可抵达的对象是对象1和对象4，那么自然本轮遍历结束，对象1和对象4就会被标记为灰色，灰色标记表就会多出这两个对象。
+
+**第三步**, 遍历灰色集合，将灰色对象引用的对象从白色集合放入灰色集合，之后将此灰色对象放入黑色集合，如图所示。
+
+![img](https://cdn.nlark.com/yuque/0/2022/jpeg/26269664/1651035859950-96053775-24f7-4bdc-a1fb-295747055b3e.jpeg?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_55%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
+这一次遍历是只扫描灰色对象，将灰色对象的第一层遍历可抵达的对象由白色变为灰色，如：对象2、对象7. 而之前的灰色对象1和对象4则会被标记为黑色，同时由灰色标记表移动到黑色标记表中。
+
+**第四步**, 重复**第三步**, 直到灰色中无任何对象，如图所示。
+![img](https://cdn.nlark.com/yuque/0/2022/jpeg/26269664/1651035907012-927d6cbc-686b-4f81-a1de-097ac7598a8e.jpeg?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_55%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
+![img](https://cdn.nlark.com/yuque/0/2022/jpeg/26269664/1651035916208-9c293dc0-8988-4180-a9b7-412e2599af0e.jpeg?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_55%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
+
+
+
+当我们全部的可达对象都遍历完后，灰色标记表将不再存在灰色对象，目前全部内存的数据只有两种颜色，黑色和白色。那么黑色对象就是我们程序逻辑可达（需要的）对象，这些数据是目前支撑程序正常业务运行的，是合法的有用数据，不可删除，白色的对象是全部不可达对象，目前程序逻辑并不依赖他们，那么白色对象就是内存中目前的垃圾数据，需要被清除。
+
+**第五步**: 回收所有的白色标记表的对象. 也就是回收垃圾，如图所示。
+
+以上我们将全部的白色对象进行删除回收，![img](https://cdn.nlark.com/yuque/0/2022/jpeg/26269664/1651035960263-e50436a6-4a3c-48f9-82cb-bb5729d71116.jpeg?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_55%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)剩下的就是全部依赖的黑色对象。
+
+
 
 三色标记清除算法本身是不可以并发或者增量执行的，**它需要STW**，**而如果并发执行，用户程序可能在标记执行的过程中修改对象的指针。**
 
@@ -199,7 +312,7 @@ Golang的垃圾回收（GC）算法使用的是无无分代（对象没有代际
 
 ### **没有STW的异常情况一般会有2种：**
 
-1.一种是把原本应该垃圾回收的死亡对象错误的标记为存活。虽然这不好，但是不会导致严重后果，只不过产生了一点逃过本次回收的浮动垃圾而已，下次清理就可以，比如上图所示的三色标记过程中，用户程序取消了从B对象到E对象的引用，但是因为B到E已经被标记完成不会继续执行步骤2，所以E对象最终会被错误的标记成黑色，不会被回收，这个D就是浮动垃圾，会在下次垃圾收集中清理。
+1.一种是把原本应该垃圾回收的死亡对象错误的标记为存活。虽然这不好，但是不会导致严重后果，只不过产生了一点逃过本次回收的浮动垃圾而已，下次清理就可以，比如上图所示的三色标记过程中，用户程序取消了从B对象到E对象的引用，但是因为B到E已经被标记完成不会继续执行步骤2，所以E对象最终会被错误的标记成黑色，不会被回收，这个D就是**浮动垃圾**，会在下次垃圾收集中清理。
 
 2.一种是把原本存活的对象错误的标记为已死亡，导致“对象消失”，这在内存管理中是非常严重的错误。比如上图所示的三色标记过程中，用户程序建立了从B对象到H对象的引用(例如**B.next =H**)，接着执行**D.next=nil**，但是因为B到H中不存在灰色对象，因此在这之间不会继续执行三色并发标记中的步骤2，D到H之间的链接被断开，所以H对象最终会被标记成白色，会被垃圾收集器错误地回收。我们将这种错误称为**悬挂指针**，即指针没有指向特定类型的合法对象，影响了内存的安全性。
 
@@ -261,11 +374,308 @@ Golang的垃圾回收（GC）算法使用的是无无分代（对象没有代际
 
 内存屏障技术是一种屏障指令，它可以让CPU或者编译器在执行内存相关操作时遵循特定的约束，目前多数的现代处理器都会乱序执行指令以最大化性能，但是该技术能够保证内存操作的顺序性，在内存屏障前执行的操作一定会先于内存屏障后执行的操作。垃圾收集中的屏障技术更像是一个**钩子方法**，它是在用户程序读取对象、创建新对象以及更新对象指针时执行的一段代码，根据操作类型的不同，我们可以将它们分成**读屏障（Read barrier）**和写屏障（Write barrier）两种，**因为读屏障需要在读操作中加入代码片段，对用户程序的性能影响很大，所以编程语言往往都会采用写屏障保证三色不变性。**
 
+**重点**：
+
+1. **写屏障的代码在编译期间生成好，之后不会再变化；**
+2. 堆上对象赋值才会生成写屏障；
+3. 哪些对象分配在栈上，哪些分配在堆上？也是编译期间由编译器决定，这个过程叫做“逃逸分析”；
+
+#### 原理分析
+
+声明下，下面的例子使用的是 go1.13.3。
+
+##### 示例分析代码
+
+写屏障是编译器生成的，先形象看下代码样子：
+
+```
+  1 package main
+  2 
+  3 type BaseStruct struct {
+  4     name string
+  5     age  int
+  6 }
+  7 
+  8 type Tstruct struct {
+  9     base   *BaseStruct
+ 10     field0 int
+ 11 }
+ 12 
+ 13 func funcAlloc0 (a *Tstruct) {
+ 14     a.base = new(BaseStruct)    // new 一个BaseStruct结构体，赋值给 a.base 字段
+ 15 }
+ 16 
+ 17 func funcAlloc1 (b *Tstruct) {
+ 18     var b0 Tstruct
+ 19     b0.base = new(BaseStruct)  // new 一个BaseStruct结构体，赋值给 b0.base 字段
+ 20 }
+ 21 
+ 22 func main() {
+ 23     a := new(Tstruct)    // new 一个Tstruct 结构体
+ 24     b := new(Tstruct)   // new 一个Tstruct 结构体
+ 25     
+ 26     go funcAlloc0(a)
+ 27     go funcAlloc1(b)
+ 28 }
+```
+
+这里例子，可以用来观察两个东西：
+
+1. 逃逸分析
+2. 编译器插入内存屏障的时机
+
+##### 逃逸分析
+
+只有堆上对象的写才会可能有写屏障，这又是个什么原因呢？因为如果对栈上的写做拦截，那么流程代码会非常复杂，并且性能下降会非常大，得不偿失。根据局部性的原理来说，其实我们程序跑起来，大部分的其实都是操作在栈上，函数参数啊、函数调用导致的压栈出栈啊、局部变量啊，协程栈，这些如果也弄起写屏障，那么可想而知了，根本就不现实，复杂度和性能就是越不过去的坎。
+
+继续看逃逸什么意思？就是内存分配到堆上。golang 可以在编译的时候使用 `-m` 参数支持把这个可视化出来：
+
+```
+$ go build -gcflags "-N -l -m" ./test_writebarrier0.go 
+# command-line-arguments
+./test_writebarrier0.go:13:18: funcAlloc0 a does not escape
+./test_writebarrier0.go:14:17: new(BaseStruct) escapes to heap
+./test_writebarrier0.go:17:18: funcAlloc1 b does not escape
+./test_writebarrier0.go:19:18: funcAlloc1 new(BaseStruct) does not escape
+./test_writebarrier0.go:23:13: new(Tstruct) escapes to heap
+./test_writebarrier0.go:24:13: new(Tstruct) escapes to heap
+```
+
+**先说逃逸分析两点原则**：
+
+1. 在保证程序正确性的前提下，尽可能的把对象分配到栈上，这样性能最好；
+   1. 栈上的对象生命周期就跟随 goroutine ，协程终结了，它就没了
+2. 明确一定要分配到堆上对象，或者不确定是否要分配在堆上的对象，那么就全都分配到堆上；
+   1. 这种对象的生命周期始于业务程序的创建，终于垃圾回收器的回收
+
+我们看到源代码，有四次 new 对象的操作，经过编译器的“逃逸分析”之后，实际分配到堆上的是三次：
+
+1. 14 行 —— 触发逃逸（分配到堆上）
+
+   1. 这个必须得分配到堆上，因为除了这个 goroutine 还要存活呢
+
+2. 19 行 —— 无 （分配到栈上）
+
+   1. 这个虽然也是 new，单就分配到栈上就行，因为 b0 这个对象就是一个纯粹的栈对象
+
+3. 23 行 —— 触发逃逸 （分配到堆上）
+
+   1. 这个需要分配到堆上，因为分配出来的对象需要传递到其他协程使用
+
+4. 24 行 —— 触发逃逸 （分配到堆上）
+
+     1.这次必须注意下，其实站在我们上帝视角，这次的分配其实也可以分配到栈上。这种情况编译器就简单处理了，直接给分配到堆上。这种就属于编译器它摸不准的，那么分配到堆上就对了，反正也就性能有点影响，功能不会有问题，不然的话你真分配到栈上了，一旦栈被回收就出问题了
+
+##### 写屏障真实的样子
+
+再看下编译器汇编的代码：
+
+![汇编后]![](https://cdn.jsdelivr.net/gh/longpi1/blog-img/20220919223939.png)
+
+从这个地方我们需要知道一个事情，go 的关键字语法呀，其实在编译的时候，都会对应到一个特定的函数，比如 new 这个关键字就对应了 `newobject` 函数，go 这个关键字对应的是 `newproc` 函数。贴一张比较完整的图：
+
+![](https://cdn.jsdelivr.net/gh/longpi1/blog-img/20220919224028.png)
+
+从这个汇编代码我们也确认了，23，24行的对象分配确实是在堆上。我们再看下函数 `funcAlloc0` 和 `funcAlloc1` 这两个。
+
+**`main.funcAlloc0`**
+
+```
+ 13 func funcAlloc0 (a *Tstruct) {
+ 14     a.base = new(BaseStruct)    // new 一个BaseStruct结构体，赋值给 a.base 字段
+ 15 }
+```
+
+![](https://cdn.jsdelivr.net/gh/liqingqiya/liqingqiya.github.io/images/posts/2020-07-11-gc2/23DEE999-886F-4298-BCAE-EDB4F7A0B454.png)
+
+简单的注释解析：
+
+```
+(gdb) disassemble 
+Dump of assembler code for function main.funcAlloc0:
+   0x0000000000456b10 <+0>:     mov    %fs:0xfffffffffffffff8,%rcx
+   0x0000000000456b19 <+9>:     cmp    0x10(%rcx),%rsp
+   0x0000000000456b1d <+13>:    jbe    0x456b6f <main.funcAlloc0+95>
+   0x0000000000456b1f <+15>:    sub    $0x20,%rsp
+   0x0000000000456b23 <+19>:    mov    %rbp,0x18(%rsp)
+   0x0000000000456b28 <+24>:    lea    0x18(%rsp),%rbp
+   0x0000000000456b2d <+29>:    lea    0x1430c(%rip),%rax        # 0x46ae40
+   0x0000000000456b34 <+36>:    mov    %rax,(%rsp)
+   0x0000000000456b38 <+40>:    callq  0x40b060 <runtime.newobject>
+   # newobject的返回值在 0x8(%rsp) 里，golang 的参数和返回值都是通过栈传递的。这个跟 c 程序不同，c 程序是溢出才会用到栈，这里先把返回值放到寄存器 rax
+   0x0000000000456b3d <+45>:    mov    0x8(%rsp),%rax           
+   0x0000000000456b42 <+50>:    mov    %rax,0x10(%rsp)
+   # 0x28(%rsp) 就是 a 的地址：0xc0000840b0
+=> 0x0000000000456b47 <+55>:    mov    0x28(%rsp),%rdi         
+   0x0000000000456b4c <+60>:    test   %al,(%rdi)
+   # 这里判断是否开启了屏障（垃圾回收的扫描并发过程，才会把这个标记打开，没有打开的情况，对于堆上的赋值只是多走一次判断开销）
+   0x0000000000456b4e <+62>:    cmpl   $0x0,0x960fb(%rip)        # 0x4ecc50 <runtime.writeBarrier>
+   0x0000000000456b55 <+69>:    je     0x456b59 <main.funcAlloc0+73>
+   0x0000000000456b57 <+71>:    jmp    0x456b68 <main.funcAlloc0+88>
+   # 赋值 a.base = xxxx
+   0x0000000000456b59 <+73>:    mov    %rax,(%rdi)
+   0x0000000000456b5c <+76>:    jmp    0x456b5e <main.funcAlloc0+78>
+   0x0000000000456b5e <+78>:    mov    0x18(%rsp),%rbp
+   0x0000000000456b63 <+83>:    add    $0x20,%rsp
+   0x0000000000456b67 <+87>:    retq   
+   # 如果是开启了屏障，那么完成 a.base = xxx 的赋值就是在 gcWriteBarrier 函数里面了
+   0x0000000000456b68 <+88>:    callq  0x44d170 <runtime.gcWriteBarrier>
+   0x0000000000456b6d <+93>:    jmp    0x456b5e <main.funcAlloc0+78>
+   0x0000000000456b6f <+95>:    callq  0x44b370 <runtime.morestack_noctxt>
+   0x0000000000456b74 <+100>:   jmp    0x456b10 <main.funcAlloc0>
+End of assembler dump.
+```
+
+**所以，从上面简单的汇编代码，我们印证得出几个小知识点**：
+
+1. golang 传参和返回参数都是通过栈来传递的（可以思考下优略点，有点是逻辑简单了，也能很好的支持多返回值的实现，缺点是比寄存器的方式略慢，但是这种损耗在程序的运行下可以忽略）；
+2. 写屏障是一段编译器插入的特殊代码，在编译期间插入，代码函数名字叫做 `gcWriteBarrier` ；
+3. 屏障代码并不是直接运行，也是要条件判断的，并不是只要是堆上内存赋值就会运行gcWriteBarrier 代码，而是要有一个条件判断。这里提前透露下，这个条件判断是垃圾回收器扫描开始前，stw 程序给设置上去的；
+   1. 所以平时对于堆上内存的赋值，多了一次写操作；
+
+伪代码如下：
+
+```
+if runtime.writeBarrier.enabled {
+    runtime.gcWriteBarrier(ptr, val)
+} else {
+    *ptr = val
+}
+```
+
+说到 golang 传参数只用栈这点，这里就再深入挖掘一点，golang ABI（Application Binary Interface）标准就是这样的，传参数用栈，返回值也用栈。但是巧了，刚好，就有一些特例，我们今天遇到的 `runtime.gcWriteBarrier` 就是个特例，gcWriteBarrier 就故意违反了这个惯例，这里引用一段这汇编文件的注释：
+
+> // gcWriteBarrier performs a heap pointer write and informs the GC. // // gcWriteBarrier does NOT follow the Go ABI. It takes two arguments: // - DI is the destination of the write // - AX is the value being written at DI // It clobbers FLAGS. It does not clobber any general-purpose registers, // but may clobber others (e.g., SSE registers).
+
+这里为了减少 GC 导致性能的损耗，使用了 rdi ，rax ，这两个寄存器来传参数：
+
+1. rdi ：堆内存写入的地址
+2. rax ：赋的值
+
+我们继续看下 `runtime·gcWriteBarrier` 函数干啥的，这个函数是用纯汇编写的，举一个特定cpu集合的例子，在 asm_amd64.s 里的实现。这个函数只干两件事：
+
+1. 执行写请求
+2. 处理 GC 相关的逻辑
+
+下面简单理解下 `runtime·gcWriteBarrier` 这个函数：
+
+```
+TEXT runtime·gcWriteBarrier(SB),NOSPLIT,$120
+
+        get_tls(R13)
+        MOVQ    g(R13), R13
+        MOVQ    g_m(R13), R13
+        MOVQ    m_p(R13), R13
+        MOVQ    (p_wbBuf+wbBuf_next)(R13), R14
+
+        LEAQ    16(R14), R14
+        MOVQ    R14, (p_wbBuf+wbBuf_next)(R13)
+    // 检查 buffer 队列是否满？
+        CMPQ    R14, (p_wbBuf+wbBuf_end)(R13)
+
+    // 赋值的前后两个值都会被入队
+
+        // 把 value 存到指定 buffer 位置
+        MOVQ    AX, -16(R14)   // Record value
+
+    // 把 *slot 存到指定 buffer 位置
+        MOVQ    (DI), R13
+        MOVQ    R13, -8(R14)
+
+    // 如果 wbBuffer 队列满了，那么就下刷处理，比如置灰，置黑等操作
+        JEQ     flush
+ret:
+    // 赋值：*slot = val 
+        MOVQ    104(SP), R14
+        MOVQ    112(SP), R13
+        MOVQ    AX, (DI)
+        RET
+
+flush:
+    。。。
+
+        //  队列满了，统一处理，这个其实是一个批量优化手段
+        CALL    runtime·wbBufFlush(SB)
+
+    。。。
+
+        JMP     ret
+```
+
+**思考下：不是说把 `\*slot = value` 直接置灰色，置黑色，就完了嘛，这里搞得这么复杂？**
+
+最开始还真不是这样的，这个也是一个优化的过程，这里是利用批量的一个思想做的一个优化。我们再理解下最本质的东西，触发了写屏障之后，我们的核心目的是为了能够把赋值的前后两个值记录下来，以便 GC 垃圾回收器能得到通知，从而避免错误的回收。记录下来是最本质的，但是并不是要立马处理，所以这里做的优化就是，攒满一个 buffer ，然后批量处理，这样效率会非常高的。
+
+wbBuf 结构如下： |————————————-| | 8 | 8 | 8 * 512 | 4 | |————————————-|
+
+每个 P 都有这么个 wbBuf 队列。
+
+我们看到 `CALL runtime·wbBufFlush(SB)` ，这个函数 wbBufFlush 是 golang 实现的，本质上是调用 `wbBufFlush1` 。这个函数才是 hook 写操作想要做的事情，精简了下代码如下：
+
+```
+func wbBufFlush1(_p_ *p) {
+        start := uintptr(unsafe.Pointer(&_p_.wbBuf.buf[0]))
+        n := (_p_.wbBuf.next - start) / unsafe.Sizeof(_p_.wbBuf.buf[0])
+        ptrs := _p_.wbBuf.buf[:n]
+
+        _p_.wbBuf.next = 0
+
+        gcw := &_p_.gcw
+        pos := 0
+    // 循环批量处理队列里的值，这个就是之前在 gcWriteBarrier 赋值的
+        for _, ptr := range ptrs {
+                if ptr < minLegalPointer {
+                        continue
+                }
+                obj, span, objIndex := findObject(ptr, 0, 0)
+                if obj == 0 {
+                        continue
+                }
+
+                mbits := span.markBitsForIndex(objIndex)
+                if mbits.isMarked() {
+                        continue
+                }
+                mbits.setMarked()
+                if span.spanclass.noscan() {
+                        gcw.bytesMarked += uint64(span.elemsize)
+                        continue
+                }
+                ptrs[pos] = obj
+                pos++
+        }
+
+        // 置灰色（投入灰色的队列），这就是我们的目的，对象在这里面我们就不怕了，我们要扫描的就是这个队列；
+        gcw.putBatch(ptrs[:pos])
+
+        _p_.wbBuf.reset()
+}
+```
+
+所以我们总结下，写屏障到底做了什么：
+
+1. hook 写操作
+2. hook 住了写操作之后，把赋值语句的前后两个值都记录下来，投入 buffer 队列
+3. buffer 攒满之后，批量刷到扫描队列（置灰）（这是 GO 1.10 左右引入的优化）
+
+**`main.funcAlloc1`**
+
+```
+ 17 func funcAlloc1 (b *Tstruct) {
+ 18     var b0 Tstruct
+ 19     b0.base = new(BaseStruct)  // new 一个BaseStruct结构体，赋值给 b0.base 字段
+ 20 }
+```
+
+![](https://cdn.jsdelivr.net/gh/liqingqiya/liqingqiya.github.io/images/posts/2020-07-11-gc2/FB0B964D-0A0F-4650-8700-45C4278E704E.png)
+
+最后，再回顾看下 `main.funcAlloc1` 函数，这个函数是只有栈操作，非常简单。
 
 
-我们让GC回收器，满足下面两种情况之一时，即可保对象不丢失。  这两种方式就是“强三色不变式”和“ 弱三色不变式”。
 
-#### (1) “强-弱” 三色不变式
+我们让GC回收器，满足下面两种情况之一时，即可保对象不丢失。  这两种方式就是**“强三色不变式”和“ 弱三色不变式”**。
+
+####  “强-弱” 三色不变式
 
 - 强三色不变式
 
@@ -287,19 +697,21 @@ Golang的垃圾回收（GC）算法使用的是无无分代（对象没有代际
 
 
 
-为了遵循上述的两个方式，GC算法演进到两种屏障方式，他们**“插入屏障”, “删除屏障”**。
+为了遵循上述的两个方式，GC算法演进到两种屏障方式，他们**“插入写屏障”, “删除写屏障”**。
 
-**插入屏障：**
+**插入写屏障：**
 
 `具体操作`: 在A对象引用B对象的时候，B对象被标记为灰色。(将B挂在A下游，B必须被标记为灰色)
 
 `满足`: **强三色不变式**. (不存在黑色对象引用白色对象的情况了， 因为白色会强制变成灰色)
 
-**删除屏障：**
+**删除写屏障：**
 
 `具体操作`: 被删除的对象，如果自身为灰色或者白色，那么被标记为灰色。
 
 `满足`: **弱三色不变式**. (保护灰色对象到白色对象的路径不会断)
+
+
 
 ### **（一）插入写屏障**
 
@@ -405,6 +817,12 @@ A.添加下游对象(C, B) //A 将下游对象C 更换为B， B被标记为灰�
 
 ![img](https://cdn.nlark.com/yuque/0/2022/jpeg/26269664/1651036559017-4564c417-9059-415c-aa81-d9504ac4e00b.jpeg?x-oss-process=image%2Fwatermark%2Ctype_d3F5LW1pY3JvaGVp%2Csize_55%2Ctext_5YiY5Li55YawQWNlbGQ%3D%2Ccolor_FFFFFF%2Cshadow_50%2Ct_80%2Cg_se%2Cx_10%2Cy_10)
 
+
+
+
+
+
+
 ### **（二）删除写屏障**
 
 
@@ -502,6 +920,8 @@ writePointer(slot, ptr):
   
 
 Go V1.8版本引入了混合写屏障机制（hybrid write barrier），避免了对栈re-scan的过程，极大的减少了STW的时间。结合了两者的优点。
+
+最本质的区别就是：**内存屏障其实就是编译器帮你生成的一段 hook 代码**，这三个屏障的本质区别就是 hook 的时机不同而已。
 
 ------
 
@@ -650,7 +1070,7 @@ v1.1 — 在多核主机并行执行垃圾收集的标记和清除阶段；
 
 v1.3 — 运行时**基于只有指针类型的值包含指针**的假设增加了对栈内存的精确扫描支持，实现了真正精确的垃圾收集；将unsafe.Pointer类型转换成整数类型的值认定为不合法的，可能会造成悬挂指针等严重问题；
 
-v1.5 — 实现了基于**三色标记清扫的并发**垃圾收集器：
+v1.5 — 实现了基于**三色标记清扫的并发**垃圾收集器（插入写屏障）：
 
 - 大幅度降低垃圾收集的延迟从几百 ms 降低至 10ms 以下；
 - 计算垃圾收集启动的合适时间并通过并发加速垃圾收集的过程；
@@ -989,3 +1409,5 @@ func forcegchelper() {
   9.[《Golang修养之路》](https://www.yuque.com/aceld/golang/zhzanb)
 
 10. https://golang.design/under-the-hood/zh-cn/part2runtime/ch08gc/barrier/
+
+11. https://liqingqiya.github.io/golang/gc/%E5%9E%83%E5%9C%BE%E5%9B%9E%E6%94%B6/2020/06/02/gc2.html
