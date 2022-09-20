@@ -382,7 +382,7 @@ Golang中的垃圾回收主要应用三色标记法，GC过程和其他用户gor
 
 #### 原理分析
 
-声明下，下面的例子使用的是 go1.13.3。
+下面的例子使用的是 go1.13.3。
 
 ##### 示例分析代码
 
@@ -426,7 +426,7 @@ Golang中的垃圾回收主要应用三色标记法，GC过程和其他用户gor
 
 ##### 逃逸分析
 
-只有堆上对象的写才会可能有写屏障，这又是个什么原因呢？因为如果对栈上的写做拦截，那么流程代码会非常复杂，并且性能下降会非常大，得不偿失。根据局部性的原理来说，其实我们程序跑起来，大部分的其实都是操作在栈上，函数参数啊、函数调用导致的压栈出栈啊、局部变量啊，协程栈，这些如果也弄起写屏障，那么可想而知了，根本就不现实，复杂度和性能就是越不过去的坎。
+只有堆上对象的写才会可能有写屏障，因为如果对栈上的写做拦截，那么流程代码会非常复杂，并且性能下降会非常大，得不偿失。根据局部性的原理来说，其实我们程序跑起来，大部分的其实都是操作在栈上，函数参数啊、函数调用导致的压栈出栈啊、局部变量啊，协程栈，这些如果也弄起写屏障，那么可想而知了，根本就不现实，复杂度和性能就是越不过去的坎。
 
 继续看逃逸什么意思？就是内存分配到堆上。golang 可以在编译的时候使用 `-m` 参数支持把这个可视化出来：
 
@@ -543,16 +543,7 @@ if runtime.writeBarrier.enabled {
 }
 ```
 
-说到 golang 传参数只用栈这点，这里就再深入挖掘一点，golang ABI（Application Binary Interface）标准就是这样的，传参数用栈，返回值也用栈。但是巧了，刚好，就有一些特例，我们今天遇到的 `runtime.gcWriteBarrier` 就是个特例，gcWriteBarrier 就故意违反了这个惯例，这里引用一段这汇编文件的注释：
-
-> // gcWriteBarrier performs a heap pointer write and informs the GC. // // gcWriteBarrier does NOT follow the Go ABI. It takes two arguments: // - DI is the destination of the write // - AX is the value being written at DI // It clobbers FLAGS. It does not clobber any general-purpose registers, // but may clobber others (e.g., SSE registers).
-
-这里为了减少 GC 导致性能的损耗，使用了 rdi ，rax ，这两个寄存器来传参数：
-
-1. rdi ：堆内存写入的地址
-2. rax ：赋的值
-
-我们继续看下 `runtime·gcWriteBarrier` 函数干啥的，这个函数是用纯汇编写的，举一个特定cpu集合的例子，在 asm_amd64.s 里的实现。这个函数只干两件事：
+`runtime·gcWriteBarrier` 函数干啥的，这个函数是用纯汇编写的，举一个特定cpu集合的例子，在 asm_amd64.s 里的实现。这个函数只干两件事：
 
 1. 执行写请求
 2. 处理 GC 相关的逻辑
@@ -673,9 +664,11 @@ func wbBufFlush1(_p_ *p) {
 
 
 
-我们让GC回收器，满足下面两种情况之一时，即可保对象不丢失。  这两种方式就是**“强三色不变式”和“ 弱三色不变式”**。
+
 
 ####  “强-弱” 三色不变式
+
+我们让GC回收器，满足下面两种情况之一时，即可保对象不丢失。  这两种方式就是**“强三色不变式”和“ 弱三色不变式”**。
 
 - 强三色不变式
 
