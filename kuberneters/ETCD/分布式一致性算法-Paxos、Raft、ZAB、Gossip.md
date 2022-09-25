@@ -39,7 +39,7 @@
 
 ### **Paxos算法**
 
-- 概念介绍
+- **概念介绍**
 
 1. Proposal提案，即分布式系统的修改请求，可以表示为**[提案编号N，提案内容value]**
 2. Client用户，类似社会民众，负责提出建议
@@ -48,7 +48,7 @@
 5. Learner提案接受者，类似记录被通过提案的记录员，负责记录提案
 
 - Basic Paxos算法
-- 步骤
+- **步骤**
 
 1. Propser准备一个N号提案
 2. Propser询问Acceptor中的多数派是否接收过N号的提案，如果都没有进入下一步，否则本提案不被考虑
@@ -68,7 +68,7 @@
 
   - - 假设系统有多个Proposer，他们不断向Acceptor发出提案，还没等到上一个提案达到多数派下一个提案又来了，就会导致Acceptor放弃当前提案转向处理下一个提案，于是所有提案都别想通过了。
 
-- Multi Paxos算法
+- **Multi Paxos算法**
 
 - - 根据Basic Paxos的改进：整个系统**只有一个**Proposer，称之为Leader。
   - 步骤
@@ -86,16 +86,39 @@
 
 ### **Raft算法**
 
-- 说明：Paxos算法不容易实现，Raft算法是对Paxos算法的简化和改进
-- 概念介绍
+Raft 算法是斯坦福大学 2017 年提出，论文名称《In Search of an Understandable Consensus Algorithm》，望文生义，该算法的目的是易于理解。Raft 这一名字来源于"Reliable, Replicated, Redundant, And Fault-Tolerant"（“可靠、可复制、可冗余、可容错”）的首字母缩写。
 
-1. Leader总统节点，负责发出提案
-2. Follower追随者节点，负责同意Leader发出的提案
-3. Candidate候选人，负责争夺Leader
+Raft 使用了分治思想把算法流程分为三个子问题：选举（Leader election）、日志复制（Log replication）、安全性（Safety）三个子问题。
 
-![img](https://pic2.zhimg.com/80/v2-b503e1b87b4888a82df87896cae29bad_1440w.jpg)
+- **Leader 选举**：当前 leader 跪了或集群初始化的情况下，新 leader 被选举出来。
+- **日志复制**：leader 必须能够从客户端接收请求，然后将它们复制给其他机器，强制它们与自己的数据一致。
+- **安全性**：如何保证上述选举和日志复制的安全，使系统满足最终一致性。
 
-​                                                                                                                       **Raft算法中的角色**
+#### （1）概念介绍
+
+在 Raft 中，节点被分为 Leader Follower Cabdidate 三种角色：
+
+- **Leader**：处理与客户端的交互和与 follower 的日志复制等，一般只有一个 Leader；
+- **Follower**：被动学习 Leader 的日志同步，同时也会在 leader 超时后转变为 Candidate 参与竞选；
+- **Candidate**：在竞选期间参与竞选；
+
+![img](https://static001.geekbang.org/infoq/b1/b1a40bab271b924a959abbaac49f8182.png)
+
+
+
+**Term**：是有连续单调递增的编号，每个 term 开始于选举阶段，一般由选举阶段和领导阶段组成。
+
+
+
+![img](https://static001.geekbang.org/infoq/ec/ec2cdafb4206d759b8bafd342c107737.png)
+
+
+
+**随机超时时间**：Follower 节点每次收到 Leader 的心跳请求后，会设置一个随机的，区间位于[150ms, 300ms)的超时时间。如果超过超时时间，还没有收到 Leader 的下一条请求，则认为 Leader 过期/故障了。
+
+**心跳续命**：Leader 在当选期间，会以一定时间间隔向其他节点发送心跳请求，以维护自己的 Leader 地位。
+
+#### （2）协议流程
 
 - 步骤：Raft算法将一致性问题分解为两个的子问题，**Leader选举**和**状态复制**
 
@@ -201,3 +224,5 @@
 [https://www.youtube.com/channel/UCr](https://link.zhihu.com/?target=https%3A//www.youtube.com/channel/UCrTVwxlwmn2CJINfuaiLB1Q)
 
 b站视频：https://www.bilibili.com/video/BV1TW411M7Fx/?spm_id_from=333.788.recommend_more_video.-1&vd_source=34718180774b041b23050c8689cdbaf2
+
+进阶学习可查看：[Raft论文导读与etcd解读](https://hardcore.feishu.cn/docs/doccnMRVFcMWn1zsEYBrbsDf8De#)
