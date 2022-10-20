@@ -1,5 +1,7 @@
 # Kubernetes 网络模型基础
 
+原文链接：https://sookocheff.com/post/kubernetes/understanding-kubernetes-networking-model
+
 ## 介绍
 
 Kubernetes 是为运行分布式集群而建立的，分布式系统的本质使得网络成为 Kubernetes 的核心和必要组成部分，了解 Kubernetes 网络模型可以使你能够正确运行、监控和排查应用程序故障。
