@@ -90,7 +90,7 @@ int ip_route_input_noref(struct sk_buff *skb, __be32 daddr, __be32 saddr,
 
 路由在内核协议栈中的位置可以用如下一张图来表示。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/BBjAFF4hcwrJl7icFodKcMCzFjMdhhItglib4ORy9hFTIAVKPEMpRMB5Owgib7E17nQURkKVloqLW2fxOUcgfzePQ/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+![image.png](https://s2.loli.net/2022/11/26/ZFsjIRLkT2i9pD6.png)
 
 网络包在发送的时候，需要从本机的多个网卡设备中选择一个合适的发送出去。网络包在接收的时候，也需要进行路由选择，如果是属于本设备的包就往上层送到网络层、传输层直到 socket 的接收缓存区中。如果不是本设备上的包，就选择合适的设备将其转发出去。
 
@@ -115,7 +115,7 @@ struct fib_table {
 
 所有的路由表都通过一个 hash - fib_table_hash 来组织和管理。它是放在网络命名空间 net 下的。这也就说明**每个命名空间都有自己独立的路由表**。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/BBjAFF4hcwrJl7icFodKcMCzFjMdhhItgjJ6dIUibBFd1zqYq8ictqAicdunuw8nQAPeB4GvFEK4XQZO4ibfHPH6IDw/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+![image.png](https://s2.loli.net/2022/11/26/9ZJIomsD6BCdS3g.png)
 
 ```
 //file:include/net/net_namespace.h
@@ -138,7 +138,7 @@ struct netns_ipv4 {
 
 如果你的服务器上创建了多个网络命名空间的话，那么就会存在多套路由表。以除了默认命名网络空间外，又创了了一个新网络命名空间的情况为例，路由表在整个内核数据结构中的关联关系总结如下图所示。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/BBjAFF4hcwrJl7icFodKcMCzFjMdhhItg4BpVqk9qumZy2DglfBWGasNUm9xQl00mGcoV8wicAccPUHhVCPKc9QQ/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+![image.png](https://s2.loli.net/2022/11/26/2rkU9vgDIOCMq1z.png)
 
 ### 2.2 路由查找 
 
@@ -299,7 +299,7 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
 在 Linux 内核中，对于发送过程和接收过程都会涉及路由选择，其中接收过程的路由选择是为了判断是该本地接收还是将它转发出去。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/BBjAFF4hcwrJl7icFodKcMCzFjMdhhItglib4ORy9hFTIAVKPEMpRMB5Owgib7E17nQURkKVloqLW2fxOUcgfzePQ/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+![图片](https://s2.loli.net/2022/11/26/ZFsjIRLkT2i9pD6.png)
 
 默认有 local 和 main 两个路由表，不过如果安装的 linux 开启了 CONFIG_IP_MULTIPLE_TABLES 选项的话，最多能支持 255 张路由表。
 
@@ -307,4 +307,4 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
 通过合适地配置路由规则，容器中的网络环境和外部的通信不再是难事。通过大量地干预路由规则就可以实现虚拟网络互通。
 
-![图片](https://mmbiz.qpic.cn/mmbiz_png/BBjAFF4hcwrJl7icFodKcMCzFjMdhhItgMmMaw8PUGJ5MTUrExiag5bqzgMzpNofYpHBJAhDNA2YSwBMPlXfOugQ/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
+![image.png](https://s2.loli.net/2022/11/26/NxQmTVbZfukrciq.png)
