@@ -3,9 +3,7 @@
 > 本文章主要内容引用自：1.孔令飞，[Go 语言项目开发实战](https://time.geekbang.org/column/article/410205)  
 >
 
-在上一篇文章中介绍了Go中的两类测试：单元测试和性能测试。在Go中，还有一些其他的测试类型和测试方法，值得我们去了解和掌握。此外，IAM项目也编写了大量测试用例，这些测试用例使用了不同的编写方法，可以通过学习IAM的测试用例来验证你学到的测试知识。
-
-首先介绍下Go 语言中的其他测试类型：**示例测试、TestMain函数、Mock测试、Fake测试**等，并且介绍下IAM项目是如何编写和运行测试用例的。
+这一篇文章将主要介绍Go 语言中的其他测试类型：**示例测试、TestMain函数、Mock测试、Fake测试**等，并且介绍下IAM项目是如何编写和运行测试用例的。
 
 ## 示例测试
 
@@ -470,93 +468,9 @@ ok  	github.com/marmotedu/gopractise-demo/gomock	0.002s
 
 ## Fake测试
 
-在Go项目开发中，对于比较复杂的接口，我们还可以Fake一个接口实现，来进行测试。所谓Fake测试，其实就是针对接口实现一个假（fake）的实例。至于如何实现Fake实例，需要你根据业务自行实现。例如：IAM项目中iam-apiserver组件就实现了一个fake store，代码见 [fake](https://github.com/marmotedu/iam/tree/v1.0.8/internal/apiserver/store/fake) 目录。因为这一讲后面的IAM项目测试实战部分有介绍，所以这里不再展开讲解。
-
-## 何时编写和执行单元测试用例？
-
-上面，我介绍了Go代码测试的基础知识，这里我再来分享下在做测试时一个比较重要的知识点：何时编写和执行单元测试用例。
-
-### 编码前：TDD
-
-![img](https://static001.geekbang.org/resource/image/48/b2/4830b21b55d194eccf1ec74637ee3eb2.png?wh=538x516)
-
-Test-Driven Development，也就是测试驱动开发，是敏捷开发的⼀项核心实践和技术，也是⼀种设计方法论。简单来说，TDD原理就是：开发功能代码之前，先编写测试用例代码，然后针对测试用例编写功能代码，使其能够通过。这样做的好处在于，通过测试的执行代码肯定满足需求，而且有助于面向接口编程，降低代码耦合，也极大降低了bug的出现几率。
-
-然而，TDD的坏处也显而易见：由于测试用例是在进行代码设计之前写的，很有可能限制开发者对代码的整体设计；并且，由于TDD对开发⼈员要求非常高，体现的思想跟传统开发思维也不⼀样，因此实施起来比较困难；此外，因为要先编写测试用例，TDD也可能会影响项目的研发进度。所以，在客观情况不满足的情况下，不应该盲目追求对业务代码使用TDD的开发模式。
-
-### 与编码同步进行：增量
-
-及时为增量代码写单测是一种良好的习惯。一方面是因为，此时我们对需求有一定的理解，能够更好地写出单元测试来验证正确性。并且，在单测阶段就发现问题，而不是等到联调测试中才发现，修复的成本也是最小的。
-
-另一方面，在写单测的过程中，我们也能够反思业务代码的正确性、合理性，推动我们在实现的过程中更好地反思代码的设计，并及时调整。
-
-### 编码后：存量
-
-在完成业务需求后，我们可能会遇到这种情况：因为上线时间比较紧张、没有单测相关规划，开发阶段只手动测试了代码是否符合功能。
-
-如果这部分存量代码出现较大的新需求，或者维护已经成为问题，需要大规模重构，这正是推动补全单测的好时机。为存量代码补充上单测，一方面能够推进重构者进一步理解原先的逻辑，另一方面也能够增强重构者重构代码后的信心，降低风险。
-
-但是，补充存量单测可能需要再次回忆理解需求和逻辑设计等细节，而有时写单测的人并不是原编码的设计者，所以编码后编写和执行单元测试用例也有一定的不足。
-
-## 测试覆盖率
-
-我们写单元测试的时候应该想得很全面，能够覆盖到所有的测试用例，但有时也会漏过一些 case，Go提供了cover工具来统计测试覆盖率。具体可以分为两大步骤。
-
-第一步，生成测试覆盖率数据：
-
-```bash
-$ go test -coverprofile=coverage.out
-do some setup
-PASS
-coverage: 40.0% of statements
-do some cleanup
-ok  	github.com/marmotedu/gopractise-demo/test	0.003s
-
-```
-
-上面的命令在当前目录下生成了 `coverage.out` 覆盖率数据文件。
-
-![img](https://static001.geekbang.org/resource/image/3c/01/3c11a0d41d6ed736f364c1693a2eff01.png?wh=1920x366)
-
-第二步，分析覆盖率文件：
-
-```bash
-$ go tool cover -func=coverage.out
-do some setup
-PASS
-coverage: 40.0% of statements
-do some cleanup
-ok  	github.com/marmotedu/gopractise-demo/test	0.003s
-[colin@dev test]$ go tool cover -func=coverage.out
-github.com/marmotedu/gopractise-demo/test/math.go:9:	Abs		100.0%
-github.com/marmotedu/gopractise-demo/test/math.go:14:	Max		100.0%
-github.com/marmotedu/gopractise-demo/test/math.go:19:	Min		0.0%
-github.com/marmotedu/gopractise-demo/test/math.go:24:	RandInt		0.0%
-github.com/marmotedu/gopractise-demo/test/math.go:29:	Floor		0.0%
-total:							(statements)	40.0%
-
-```
-
-在上述命令的输出中，我们可以查看到哪些函数没有测试，哪些函数内部的分支没有测试完全。cover工具会根据被执行代码的行数与总行数的比例计算出覆盖率。可以看到，Abs和Max函数的测试覆盖率为100%，Min和RandInt的测试覆盖率为0。
-
-我们还可以使用 `go tool cover -html` 生成 `HTML` 格式的分析文件，可以更加清晰地展示代码的测试情况：
-
-```bash
-$ go tool cover -html=coverage.out -o coverage.html
-
-```
-
-上述命令会在当前目录下生成一个 `coverage.html` 文件，用浏览器打开 `coverage.html` 文件，可以更加清晰地看到代码的测试情况，如下图所示：
-
-![img](https://static001.geekbang.org/resource/image/f0/5e/f089f5d44ba06f052c1c46c858c2b75e.png?wh=1524x1075)
-
-通过上图，我们可以知道红色部分的代码没有被测试到，可以让我们接下来有针对性地添加测试用例，而不是一头雾水，不知道需要为哪些代码编写测试用例。
-
-在Go项目开发中，我们往往会把测试覆盖率作为代码合并的一个强制要求，所以需要在进行代码测试时，同时生成代码覆盖率数据文件。在进行代码测试时，可以通过分析该文件，来判断我们的代码测试覆盖率是否满足要求，如果不满足则代码测试失败。
+在Go项目开发中，对于比较复杂的接口，我们还可以Fake一个接口实现，来进行测试。所谓Fake测试，其实就是针对接口实现一个假（fake）的实例。至于如何实现Fake实例，需要你根据业务自行实现。例如：IAM项目中iam-apiserver组件就实现了一个fake store，代码见 [fake](https://github.com/marmotedu/iam/tree/v1.0.8/internal/apiserver/store/fake) 目录。接下来基于IAM项目测试实战部分介绍
 
 ## IAM项目测试实战
-
-接下来，我来介绍下IAM项目是如何编写和运行测试用例的，你可以通过IAM项目的测试用例，加深对上面内容的理解。
 
 ### IAM项目是如何运行测试用例的？
 
@@ -619,8 +533,6 @@ $ make cover COVERAGE=80
 所以，在 `Makefile` 文件中，我将 `cover` 放在 `all` 目标的依赖中，并且位于build之前，也就是 `all: gen add-copyright format lint cover build`。这样每次当我们执行make时，会自动进行代码测试，并计算单元测试覆盖率，如果覆盖率不达标，则停止构建；如果达标，继续进入下一步的构建流程。
 
 ### IAM项目测试案例分享
-
-接下来，我会给你展示一些IAM项目的测试案例，因为这些测试案例的实现方法，我在 [36讲](https://time.geekbang.org/column/article/408529) 和这一讲的前半部分已有详细介绍，所以这里，我只列出具体的实现代码，不会再介绍这些代码的实现方法。
 
 1. 单元测试案例
 
@@ -760,8 +672,6 @@ func GetFakeFactoryOr() (store.Factory, error) {
 
 ## 其他测试工具/包
 
-最后，我再来分享下Go项目测试中常用的工具/包，因为内容较多，我就不详细介绍了，如果感兴趣你可以点进链接自行学习。我将这些测试工具/包分为了两类，分别是测试框架和Mock工具。
-
 ### 测试框架
 
 - [Testify框架](https://github.com/stretchr/testify)：Testify是Go test的预判工具，它能让你的测试代码变得更优雅和高效，测试结果也变得更详细。
@@ -769,7 +679,7 @@ func GetFakeFactoryOr() (store.Factory, error) {
 
 ### Mock工具
 
-这一讲里，我介绍了Go官方提供的Mock框架GoMock，不过还有一些其他的优秀Mock工具可供我们使用。这些Mock工具分别用在不同的Mock场景中，我在 [10讲](https://time.geekbang.org/column/article/384648) 中已经介绍过。不过，为了使我们这一讲的测试知识体系更加完整，这里我还是再提一次，你可以复习一遍。
+这篇文章介绍了Go官方提供的Mock框架GoMock，不过还有一些其他的优秀Mock工具可供我们使用。这些Mock工具分别用在不同的Mock场景中
 
 - [sqlmock](https://github.com/DATA-DOG/go-sqlmock)：可以用来模拟数据库连接。数据库是项目中比较常见的依赖，在遇到数据库依赖时都可以用它。
 - [httpmock](https://github.com/jarcoal/httpmock)：可以用来Mock HTTP请求。
@@ -777,14 +687,8 @@ func GetFakeFactoryOr() (store.Factory, error) {
 
 ## 总结
 
-这一讲，我介绍了除单元测试和性能测试之外的另一些测试方法。
+这一篇文章介绍了除单元测试和性能测试之外的另一些测试方法。
 
 除了示例测试和TestMain函数，我还详细介绍了Mock测试，也就是如何使用GoMock来测试一些在单元测试环境下不好实现的接口。绝大部分情况下，可以使用GoMock来Mock接口，但是对于一些业务逻辑比较复杂的接口，我们可以通过Fake一个接口实现，来对代码进行测试，这也称为Fake测试。
-
-此外，我还介绍了何时编写和执行测试用例。我们可以根据需要，选择在编写代码前、编写代码中、编写代码后编写测试用例。
-
-为了保证单元测试覆盖率，我们还应该为整个项目设置单元测试覆盖率质量红线，并将该质量红线加入到CICD流程中。我们可以通过 `go test -coverprofile=coverage.out` 命令来生成测试覆盖率数据，通过 `go tool cover -func=coverage.out` 命令来分析覆盖率文件。
-
-IAM项目中使用了大量的测试方法和技巧来测试代码，为了加深你对测试知识的理解，我也列举了一些测试案例，供你参考、学习和验证。具体的测试案例，你可以返回前面查看下。
 
 除此之外，我们还可以使用其他一些测试框架，例如Testify框架和GoConvey框架。在Go代码测试中，我们最常使用的是Go官方提供的Mock框架GoMock，但仍然有其他优秀的Mock工具，可供我们在不同场景下使用，例如sqlmock、httpmock、bouk/monkey等。

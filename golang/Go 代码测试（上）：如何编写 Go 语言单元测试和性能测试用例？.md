@@ -7,6 +7,86 @@
 
 每种语言通常都有自己的测试包/模块，Go语言也不例外。在Go中，我们可以通过 `testing` 包对代码进行单元测试和性能测试。在这篇文章中会用一些示例来讲解如何编写单元测试和性能测试用例，下一讲则会深入了解单元测试其他类型及项目测试实战
 
+## 何时编写和执行单元测试用例？
+
+### 编码前：TDD
+
+![img](https://static001.geekbang.org/resource/image/48/b2/4830b21b55d194eccf1ec74637ee3eb2.png?wh=538x516)
+
+Test-Driven Development，也就是测试驱动开发，是敏捷开发的⼀项核心实践和技术，也是⼀种设计方法论。简单来说，TDD原理就是：开发功能代码之前，先编写测试用例代码，然后针对测试用例编写功能代码，使其能够通过。这样做的好处在于，通过测试的执行代码肯定满足需求，而且有助于面向接口编程，降低代码耦合，也极大降低了bug的出现几率。
+
+然而，TDD的坏处也显而易见：由于测试用例是在进行代码设计之前写的，很有可能限制开发者对代码的整体设计；并且，由于TDD对开发⼈员要求非常高，体现的思想跟传统开发思维也不⼀样，因此实施起来比较困难；此外，因为要先编写测试用例，TDD也可能会影响项目的研发进度。所以，在客观情况不满足的情况下，不应该盲目追求对业务代码使用TDD的开发模式。
+
+### 与编码同步进行：增量
+
+及时为增量代码写单测是一种良好的习惯。一方面是因为，此时我们对需求有一定的理解，能够更好地写出单元测试来验证正确性。并且，在单测阶段就发现问题，而不是等到联调测试中才发现，修复的成本也是最小的。
+
+另一方面，在写单测的过程中，我们也能够反思业务代码的正确性、合理性，推动我们在实现的过程中更好地反思代码的设计，并及时调整。
+
+### 编码后：存量
+
+在完成业务需求后，我们可能会遇到这种情况：因为上线时间比较紧张、没有单测相关规划，开发阶段只手动测试了代码是否符合功能。
+
+如果这部分存量代码出现较大的新需求，或者维护已经成为问题，需要大规模重构，这正是推动补全单测的好时机。为存量代码补充上单测，一方面能够推进重构者进一步理解原先的逻辑，另一方面也能够增强重构者重构代码后的信心，降低风险。
+
+但是，补充存量单测可能需要再次回忆理解需求和逻辑设计等细节，而有时写单测的人并不是原编码的设计者，所以编码后编写和执行单元测试用例也有一定的不足。
+
+## 测试覆盖率
+
+我们写单元测试的时候应该想得很全面，能够覆盖到所有的测试用例，但有时也会漏过一些 case，Go提供了cover工具来统计测试覆盖率。具体可以分为两大步骤。
+
+第一步，生成测试覆盖率数据：
+
+```bash
+$ go test -coverprofile=coverage.out
+do some setup
+PASS
+coverage: 40.0% of statements
+do some cleanup
+ok  	github.com/marmotedu/gopractise-demo/test	0.003s
+
+```
+
+上面的命令在当前目录下生成了 `coverage.out` 覆盖率数据文件。
+
+![img](https://static001.geekbang.org/resource/image/3c/01/3c11a0d41d6ed736f364c1693a2eff01.png?wh=1920x366)
+
+第二步，分析覆盖率文件：
+
+```bash
+$ go tool cover -func=coverage.out
+do some setup
+PASS
+coverage: 40.0% of statements
+do some cleanup
+ok  	github.com/marmotedu/gopractise-demo/test	0.003s
+[colin@dev test]$ go tool cover -func=coverage.out
+github.com/marmotedu/gopractise-demo/test/math.go:9:	Abs		100.0%
+github.com/marmotedu/gopractise-demo/test/math.go:14:	Max		100.0%
+github.com/marmotedu/gopractise-demo/test/math.go:19:	Min		0.0%
+github.com/marmotedu/gopractise-demo/test/math.go:24:	RandInt		0.0%
+github.com/marmotedu/gopractise-demo/test/math.go:29:	Floor		0.0%
+total:							(statements)	40.0%
+
+```
+
+在上述命令的输出中，我们可以查看到哪些函数没有测试，哪些函数内部的分支没有测试完全。cover工具会根据被执行代码的行数与总行数的比例计算出覆盖率。可以看到，Abs和Max函数的测试覆盖率为100%，Min和RandInt的测试覆盖率为0。
+
+我们还可以使用 `go tool cover -html` 生成 `HTML` 格式的分析文件，可以更加清晰地展示代码的测试情况：
+
+```bash
+$ go tool cover -html=coverage.out -o coverage.html
+
+```
+
+上述命令会在当前目录下生成一个 `coverage.html` 文件，用浏览器打开 `coverage.html` 文件，可以更加清晰地看到代码的测试情况，如下图所示：
+
+![img](https://static001.geekbang.org/resource/image/f0/5e/f089f5d44ba06f052c1c46c858c2b75e.png?wh=1524x1075)
+
+通过上图，我们可以知道红色部分的代码没有被测试到，可以让我们接下来有针对性地添加测试用例，而不是一头雾水，不知道需要为哪些代码编写测试用例。
+
+在Go项目开发中，我们往往会把测试覆盖率作为代码合并的一个强制要求，所以需要在进行代码测试时，同时生成代码覆盖率数据文件。在进行代码测试时，可以通过分析该文件，来判断我们的代码测试覆盖率是否满足要求，如果不满足则代码测试失败。
+
 ## 如何测试 Go 代码？
 
 Go语言有自带的测试框架 `testing`，可以用来实现单元测试（T类型）和性能测试（B类型），通过 `go test` 命令来执行单元测试和性能测试。
