@@ -1,5 +1,7 @@
 #                                在Go中如何正确重试请求
 
+> 本文章转载自 luozhiyun很酷 的 [在Go中如何正确重试请求](https://mp.weixin.qq.com/s/NRbSCy-g7Utf7e6ql2rtYA)
+
 ## 前言
 
 我们平时在开发中肯定避不开的一个问题是如何在不可靠的网络服务中实现可靠的网络通信，其中 http 请求重试是经常用的技术。但是 Go 标准库 net/http 实际上是没有重试这个功能的，所以本篇文章主要讲解如何在 Go 中实现请求重试。
@@ -18,7 +20,7 @@
 
 重试策略可以分为很多种，一方面要考虑到本次请求时长过长而影响到的业务忍受度，另一方面要考虑到重试会对下游服务产生过多的请求而带来的影响，总之就是一个trade-off的问题。
 
-所以对于重试算法，一般是在重试之间加一个 gap 时间，感兴趣的朋友也可以去看看这篇文章。结合我们自己平时的实践加上这篇文章的算法一般可以总结出以下几条规则：
+所以对于重试算法，一般是在重试之间加一个 gap 时间，算法一般可以总结出以下几条规则：
 
 - 线性间隔（Linear Backoff）：每次重试间隔时间是固定的进行重试，如每1s重试一次；
 - 线性间隔+随机时间（Linear Jitter Backoff）：有时候每次重试间隔时间一致可能会导致多个请求在同一时间请求，那么我们可以加入一个随机时间，在线性间隔时间的基础上波动一个百分比的时间；
@@ -43,7 +45,7 @@ req, _ := http.NewRequest("POST", "localhost", strings.NewReader("hello"))
 
 我们可以先弄一个例子：
 
-```
+```golang
 func main() {
  go func() {
   http.HandleFunc("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +90,7 @@ error sending the first time: Post "http://localhost:8090/": http: ContentLength
 
 当再次请求的时候，发现 client 请求的 Body 数据并不是我们预期的20个长度，而是 0，导致了 err。因此需要将Body这个`Reader `进行重置，如下：
 
-```
+```golang
 func resetBody(request *http.Request, originalBody []byte) {
  request.Body = io.NopCloser(bytes.NewBuffer(originalBody))
  request.GetBody = func() (io.ReadCloser, error) {
