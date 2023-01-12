@@ -2,13 +2,13 @@
 
 ## 运作方式
 
-TCP协议的运行可划分为三个阶段：连接创建(*connection establishment*)、数据传送（*data transfer*）和连接终止（*connection termination*）。操作系统将TCP连接抽象为[套接字](https://zh.wikipedia.org/wiki/Berkeley套接字)表示的本地端点（local end-point），作为编程接口给程序使用。在TCP连接的生命期内，本地端点要经历一系列的[状态](https://zh.wikipedia.org/wiki/传输控制协议#状态编码)改变。[[1\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-#1-1)
+TCP协议的运行可划分为三个阶段：连接创建(*connection establishment*)、数据传送（*data transfer*）和连接终止（*connection termination*）。操作系统将TCP连接抽象为[套接字](https://zh.wikipedia.org/wiki/Berkeley套接字)表示的本地端点（local end-point），作为编程接口给程序使用。在TCP连接的生命期内，本地端点要经历一系列的[状态](https://zh.wikipedia.org/wiki/传输控制协议#状态编码)改变。
 
-### 创建通路
+### 创建通路 —— 三次握手
 
 TCP用三次[握手](https://zh.wikipedia.org/wiki/握手_(技术))（或称三路握手，three-way handshake）过程创建一个连接。在连接创建过程中，很多参数要被初始化，例如序号被初始化以保证按序传输和连接的强壮性。
 
-[![img](https://upload.wikimedia.org/wikipedia/commons/thumb/3/3f/Connection_TCP.png/220px-Connection_TCP.png)](https://zh.wikipedia.org/wiki/File:Connection_TCP.png)
+![img](https://static001.geekbang.org/resource/image/c0/08/c067fe62f49e8152368c7be9d91adc08.jpg?wh=1693*1093)
 
 TCP连接的正常创建
 
@@ -29,11 +29,35 @@ TCP连接的正常创建
 
 “三次握手”的目的是“为了防止已失效的连接(connect)请求报文段传送到了服务端，因而产生错误”，也即为了解决“网络中存在延迟的重复分组”问题。例如：client发出的第一个连接请求报文段并没有丢失，而是在某个网络结点长时间的滞留了，以致延误到连接释放以后的某个时间才到达server。本来这是一个早已失效的报文段。但server收到此失效的连接请求报文段后，就误认为是client发出的一个新的连接请求。于是就向client发出确认报文段，同意创建连接。假设不采用“三次握手”，那么只要server发出确认，新的连接就创建了。由于现在client并没有发出创建连接的请求，因此不会理睬server的确认，也不会向server发送数据。但server却以为新的运输连接已经创建，并一直等待client发来数据。这样，server的很多资源就白白浪费掉了。采用“三次握手”的办法可以防止上述现象发生，client不会向server的确认发出确认。server由于收不到确认，就知道client并没有要求创建连接。
 
+### 终结通路 —— 四次挥手
+
+连接终止使用了四次挥手过程（或称四次握手，four-way handshake），在这个过程中连接的每一侧都独立地被终止。当一个端点要停止它这一侧的连接，就向对侧发送FIN，对侧回复ACK表示确认。因此，拆掉一侧的连接过程需要一对FIN和ACK，分别由两侧端点发出。
+
+![img](https://static001.geekbang.org/resource/image/bf/13/bf1254f85d527c77cc4088a35ac11d13.jpg?wh=1693*1534)
+
+首先发出FIN的一侧，如果给对侧的FIN响应了ACK，那么就会超时等待2*MSL时间，然后关闭连接。在这段超时等待时间内，本地的端口不能被新连接使用；避免延时的包的到达与随后的新连接相混淆。RFC793定义了MSL为2分钟，Linux设置成了30s。参数tcp_max_tw_buckets控制并发的TIME_WAIT的数量，默认值是180000，如果超限，那么，系统会把多的TIME_WAIT状态的连接给destory掉，然后在日志里打一个警告（如：time wait bucket table overflow）
+
+连接可以工作在[TCP半开](https://zh.wikipedia.org/w/index.php?title=TCP半开&action=edit&redlink=1)状态。即一侧关闭了连接，不再发送数据；但另一侧没有关闭连接，仍可以发送数据。已关闭的一侧仍然应接收数据，直至对侧也关闭了连接。
+
+也可以通过测三次握手关闭连接。主机A发出FIN，主机B回复FIN & ACK，然后主机A回复ACK.[[13\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-13)
+
+一些主机（如[Linux](https://zh.wikipedia.org/wiki/Linux)或[HP-UX](https://zh.wikipedia.org/wiki/HP-UX)）的TCP栈能实现半双工关闭序列。这种主机如果主动关闭一个连接但还没有读完从这个连接已经收到的数据，该主机发送RST代替FIN[[14\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-14)。这使得一个TCP应用程序能确认远程应用程序已经读了所有已发送数据，并等待远程侧发出的FIN。但是远程的TCP栈不能区分*Connection Aborting RST*与*Data Loss RST*，两种原因都会导致远程的TCP栈失去所有的收到数据。
+
+一些应用协议使用TCP open/close handshaking，因为应用协议的TCP open/close handshaking可以发现主动关闭的RST问题。例如：
+
+```
+s = connect(remote);
+send(s, data);
+close(s);
+```
+
+TCP/IP栈采用上述方法不能保证所有数据到达对侧，如果未读数据已经到达对侧。
+
 ### 资源使用
 
 主机收到一个TCP包时，用两端的IP地址与端口号来标识这个TCP包属于哪个session。使用一张表来存储所有的session，表中的每条称作Transmission Control Block（TCB），tcb结构的定义包括连接使用的源端口、目的端口、目的ip、序号、应答序号、对方窗口大小、己方窗口大小、tcp状态、tcp输入/输出队列、应用层输出队列、tcp的重传有关变量等。
 
-服务器端的连接数量是无限的，只受内存的限制。客户端的连接数量，过去由于在发送第一个SYN到服务器之前需要先分配一个随机空闲的端口，这限制了客户端IP地址的对外发出连接的数量上限。从Linux 4.2开始，有了socket选项IP_BIND_ADDRESS_NO_PORT，它通知Linux内核不保留usingbind使用端口号为0时内部使用的临时端口（ephemeral port），在connect时会自动选择端口以组成独一无二的四元组（同一个客户端端口可用于连接不同的服务器[套接字](https://zh.wikipedia.org/wiki/套接字)；同一个服务器端口可用于接受不同客户端套接字的连接）。[[2\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-2)
+服务器端的连接数量是无限的，只受内存的限制。客户端的连接数量，过去由于在发送第一个SYN到服务器之前需要先分配一个随机空闲的端口，这限制了客户端IP地址的对外发出连接的数量上限。从Linux 4.2开始，有了socket选项IP_BIND_ADDRESS_NO_PORT，它通知Linux内核不保留usingbind使用端口号为0时内部使用的临时端口（ephemeral port），在connect时会自动选择端口以组成独一无二的四元组（同一个客户端端口可用于连接不同的服务器[套接字](https://zh.wikipedia.org/wiki/套接字)；同一个服务器端口可用于接受不同客户端套接字的连接）。
 
 对于不能确认的包、接收但还没读取的数据，都会占用操作系统的资源。
 
@@ -59,11 +83,11 @@ TCP协议使用序号标识每端发出的字节的顺序，从而另一端接�
 
 ##### 超时重传
 
-发送方使用一个保守估计的时间作为收到数据包的确认的超时上限。如果超过这个上限仍未收到确认包，发送方将重传这个数据包。每当发送方收到确认包后，会重置这个重传定时器。典型地，定时器的值设定为 {\displaystyle {\text{smoothed RTT}}+\max(G,4\times {\text{RTT variation}})}![{\displaystyle {\text{smoothed RTT}}+\max(G,4\times {\text{RTT variation}})}](https://wikimedia.org/api/rest_v1/media/math/render/svg/32319283141584248ce57da63837f20742f4c2ed) 其中{\displaystyle G}![G](https://wikimedia.org/api/rest_v1/media/math/render/svg/f5f3c8921a3b352de45446a6789b104458c9f90b)是时钟粒度。[[5\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-5) 进一步，如果重传定时器被触发，仍然没有收到确认包，定时器的值将被设为前次值的二倍（直到特定阈值）。这是由于存在一类通过欺骗发送者使其重传多次，进而压垮接收者的攻击，而使用前述的定时器策略可以避免此类[中间人攻击](https://zh.wikipedia.org/wiki/中间人攻击)方式的[拒绝服务攻击](https://zh.wikipedia.org/wiki/拒绝服务攻击)。
+发送方使用一个保守估计的时间作为收到数据包的确认的超时上限。如果超过这个上限仍未收到确认包，发送方将重传这个数据包。每当发送方收到确认包后，会重置这个重传定时器。典型地，定时器的值设定为![image.png](https://s2.loli.net/2023/01/11/wgjGiDf14uvYLlh.png)是时钟粒度。[[5\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-5)进一步，如果重传定时器被触发，仍然没有收到确认包，定时器的值将被设为前次值的二倍（直到特定阈值）。这是由于存在一类通过欺骗发送者使其重传多次，进而压垮接收者的攻击，而使用前述的定时器策略可以避免此类[中间人攻击](https://zh.wikipedia.org/wiki/中间人攻击)方式的[拒绝服务攻击](https://zh.wikipedia.org/wiki/拒绝服务攻击)。
 
 #### 数据传输举例
 
-[![img](https://upload.wikimedia.org/wikipedia/commons/thumb/b/b1/Tcp_transport_example.gif/350px-Tcp_transport_example.gif)](https://zh.wikipedia.org/wiki/File:Tcp_transport_example.gif)
+[![image.png](https://s2.loli.net/2023/01/08/jlBeg6TA1hwaEFu.png)](https://zh.wikipedia.org/wiki/File:Tcp_transport_example.gif)
 
 TCP数据传输
 
@@ -87,7 +111,7 @@ TCP的16位的[校验和](https://zh.wikipedia.org/wiki/校验和)（checksum）
 
 TCP使用[滑动窗口协议](https://zh.wikipedia.org/w/index.php?title=滑动窗口协议&action=edit&redlink=1)实现流量控制。接收方在“接收窗口”域指出还可接收的字节数量。发送方在没有新的确认包的情况下至多发送“接收窗口”允许的字节数量。接收方可修改“接收窗口”的值。
 
-[![img](https://upload.wikimedia.org/wikipedia/commons/thumb/d/db/Tcp.svg/250px-Tcp.svg.png)](https://zh.wikipedia.org/wiki/File:Tcp.svg)
+[![image.png](https://s2.loli.net/2023/01/08/PeOYlnvUZfFzyEN.png)](https://zh.wikipedia.org/wiki/File:Tcp.svg)
 
 TCP包的序号与接收窗口的行为很像时钟。
 
@@ -111,18 +135,10 @@ TCP的现代实现包含四种相互影响的拥塞控制算法：[慢开始](ht
 RFC793中定义的计算SRTT的经典算法：指数加权移动平均（Exponential weighted moving average）
 
 1. 先采样RTT，记下最近好几次的RTT值。
-2. 做平滑计算SRTT公式为：{\displaystyle SRTT=(\alpha *SRTT)+((1-\alpha )*RTT)}![{\displaystyle SRTT=(\alpha *SRTT)+((1-\alpha )*RTT)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/157dde4d961b78f4af57965e8b5f0b501d1c2f12)，其中 α 取值在0.8 到 0.9之间
-3. 计算RTO，公式：{\displaystyle RTO=min(UBOUND,max(LBOUND,(\beta *SRTT))}![{\displaystyle RTO=min(UBOUND,max(LBOUND,(\beta *SRTT))}](https://wikimedia.org/api/rest_v1/media/math/render/svg/32b6102ea2628a6b1a935a1c3feb2a1de896c6f2)，其中 UBOUND是最大的timeout时间上限值，LBOUND是最小的timeout时间下限值，β值一般在1.3到2.0之间。
+2. 做平滑计算SRTT公式为![image.png](https://s2.loli.net/2023/01/11/5oWpVFqYEgcHNBb.png)，其中 α 取值在0.8 到 0.9之间
+3. 计算RTO，公式：![image.png](https://s2.loli.net/2023/01/11/4OPjtgHQJzbIlSf.png)，其中 UBOUND是最大的timeout时间上限值，LBOUND是最小的timeout时间下限值，β值一般在1.3到2.0之间。
 
-1987年，出现计算RTT的[Karn算法](https://zh.wikipedia.org/w/index.php?title=Karn算法&action=edit&redlink=1)或TCP时间戳（[RFC](https://zh.wikipedia.org/wiki/RFC) [1323](https://tools.ietf.org/html/rfc1323)），最大特点是——忽略重传，不把重传的RTT做采样。但是，如果在某一时间，网络闪动，突然变慢了，产生了比较大的延时，这个延时导致要重传所有的包（因为之前的RTO很小），于是，因为重传的不算，所以，RTO就不会被更新，这是一个灾难。为此，Karn算法一发生重传，就对现有的RTO值翻倍。这就是的Exponential backoff。
-
-1988年，在[RFC](https://zh.wikipedia.org/wiki/RFC) [6298](https://tools.ietf.org/html/rfc6298)中给出[范·雅各布森](https://zh.wikipedia.org/wiki/范·雅各布森)算法取平均以获得平滑往返时延（Smoothed Round Trip Time，SRTT），作为最终的RTT估计值。这个算法在被用在今天的TCP协议中：
-
-{\displaystyle SRTT=SRTT+\alpha *(RTT-SRTT)}![{\displaystyle SRTT=SRTT+\alpha *(RTT-SRTT)}](https://wikimedia.org/api/rest_v1/media/math/render/svg/c0f11815a603949df6d75ef69ab5bdbbde8885b8) {\displaystyle DevRTT=(1-\beta )*DevRTT+\beta *\left\vert RTT-SRTT\right\vert }![{\displaystyle DevRTT=(1-\beta )*DevRTT+\beta *\left\vert RTT-SRTT\right\vert }](https://wikimedia.org/api/rest_v1/media/math/render/svg/1f61694ef7af35e667516ca5836f49ebbc4ddab9) {\displaystyle RTO=\mu *SRTT+\partial *DevRTT}![{\displaystyle RTO=\mu *SRTT+\partial *DevRTT}](https://wikimedia.org/api/rest_v1/media/math/render/svg/76f58065b6978558b9450476c677eacbd9103f8a)
-
-其中：DevRTT是Deviation RTT。在Linux下，α = 0.125，β = 0.25， μ = 1，∂= 4
-
-目前有很多[TCP拥塞控制算法](https://zh.wikipedia.org/wiki/TCP拥塞控制)在研究中。
+目前有很多[TCP拥塞控制算法](https://zh.wikipedia.org/wiki/TCP拥塞控制)在研究中，感兴趣的可自行查看。
 
 ### 最大分段大小
 
@@ -159,7 +175,8 @@ RFC 1323 定义了TCP时间戳，并不对应于系统时钟，使用随机值�
 
 有两个时间戳域:
 
-
+- 4字节的发送时间戳值
+- 4字节的响应回复时间戳值（最近收到数据的时间戳）
 
 TCP时间戳用于“防止序列号回绕算法”（Protection Against Wrapped Sequence numbers，PAWS），细节见RFC 1323。PAWS用于接收窗口跨序号回绕边界。这种情形下一个包可能会重传以回答问题：“是否是第一个还是第二个4 GB的序号？”时间戳可以打破这一问题。
 
@@ -171,7 +188,7 @@ TCP时间戳用于“防止序列号回绕算法”（Protection Against Wrapped
 
 [带外数据](https://zh.wikipedia.org/w/index.php?title=带外数据&action=edit&redlink=1)（OOB）是指对紧急数据，中断或放弃排队中的数据流；接收方应立即处理紧急数据。完成后，TCP通知应用程序恢复流队列的正常处理。
 
-OOB并不影响网络，“紧急”仅影响远程端的处理。这一协议很少被实现。[[10\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-10)[[11\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-11)
+OOB并不影响网络，“紧急”仅影响远程端的处理。这一协议很少被实现。
 
 ### 强制数据递交
 
@@ -181,37 +198,7 @@ OOB并不影响网络，“紧急”仅影响远程端的处理。这一协议�
 
 socket选项`TCP_NODELAY`能放弃默认的200 ms发送延迟。应用程序使用这个socket选项强制发出数据。
 
-RFC定义了`PSH`能立即发出比特。[Berkeley套接字](https://zh.wikipedia.org/wiki/Berkeley套接字)不能控制或指出这种情形，只能由[协议栈](https://zh.wikipedia.org/wiki/协议栈)控制。[[12\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-Stevens2006-12)
-
-### 终结通路
-
-[![img](https://upload.wikimedia.org/wikipedia/commons/thumb/2/2d/Deconnection_TCP.png/220px-Deconnection_TCP.png)](https://zh.wikipedia.org/wiki/File:Deconnection_TCP.png)
-
-TCP连接的正常终止
-
-[![img](https://upload.wikimedia.org/wikipedia/commons/thumb/5/55/TCP_CLOSE.svg/260px-TCP_CLOSE.svg.png)](https://zh.wikipedia.org/wiki/File:TCP_CLOSE.svg)
-
-连接终止
-
-连接终止使用了四路握手过程（或称四次握手，four-way handshake），在这个过程中连接的每一侧都独立地被终止。当一个端点要停止它这一侧的连接，就向对侧发送FIN，对侧回复ACK表示确认。因此，拆掉一侧的连接过程需要一对FIN和ACK，分别由两侧端点发出。
-
-首先发出FIN的一侧，如果给对侧的FIN响应了ACK，那么就会超时等待2*MSL时间，然后关闭连接。在这段超时等待时间内，本地的端口不能被新连接使用；避免延时的包的到达与随后的新连接相混淆。RFC793定义了MSL为2分钟，Linux设置成了30s。参数tcp_max_tw_buckets控制并发的TIME_WAIT的数量，默认值是180000，如果超限，那么，系统会把多的TIME_WAIT状态的连接给destory掉，然后在日志里打一个警告（如：time wait bucket table overflow）
-
-连接可以工作在[TCP半开](https://zh.wikipedia.org/w/index.php?title=TCP半开&action=edit&redlink=1)状态。即一侧关闭了连接，不再发送数据；但另一侧没有关闭连接，仍可以发送数据。已关闭的一侧仍然应接收数据，直至对侧也关闭了连接。
-
-也可以通过测三次握手关闭连接。主机A发出FIN，主机B回复FIN & ACK，然后主机A回复ACK.[[13\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-13)
-
-一些主机（如[Linux](https://zh.wikipedia.org/wiki/Linux)或[HP-UX](https://zh.wikipedia.org/wiki/HP-UX)）的TCP栈能实现半双工关闭序列。这种主机如果主动关闭一个连接但还没有读完从这个连接已经收到的数据，该主机发送RST代替FIN[[14\]](https://zh.wikipedia.org/wiki/传输控制协议#cite_note-14)。这使得一个TCP应用程序能确认远程应用程序已经读了所有已发送数据，并等待远程侧发出的FIN。但是远程的TCP栈不能区分*Connection Aborting RST*与*Data Loss RST*，两种原因都会导致远程的TCP栈失去所有的收到数据。
-
-一些应用协议使用TCP open/close handshaking，因为应用协议的TCP open/close handshaking可以发现主动关闭的RST问题。例如：
-
-```
-s = connect(remote);
-send(s, data);
-close(s);
-```
-
-TCP/IP栈采用上述方法不能保证所有数据到达对侧，如果未读数据已经到达对侧。
+RFC定义了`PSH`能立即发出比特。[Berkeley套接字](https://zh.wikipedia.org/wiki/Berkeley套接字)不能控制或指出这种情形，只能由[协议栈](https://zh.wikipedia.org/wiki/协议栈)控制。
 
 ### 状态编码
 
@@ -267,23 +254,24 @@ TCP/IP栈采用上述方法不能保证所有数据到达对侧，如果未读�
 
 #### 为什么建立连接是三次握手，而关闭连接却是四次挥手呢？
 
-这是因为服务端在LISTEN状态下，收到建立连接请求的SYN报文后，把ACK和SYN放在一个报文里发送给客户端。而关闭连接时，当收到对方的FIN报文时，仅仅表示对方不再发送数据了但是还能接收数据，己方也未必全部数据都发送给对方了，所以己方可以立即close，也可以发送一些数据给对方后，再发送FIN报文给对方来表示同意现在关闭连接，因此，己方ACK和FIN一般都会分开发送。
+建立连接时因为服务端在LISTEN状态下，收到建立连接请求的SYN报文后，把ACK和SYN放在一个报文里发送给客户端。
+
+而关闭连接时，当收到对方的FIN报文时，仅仅表示对方不再发送数据了但是还能接收数据，己方也未必全部数据都发送给对方了，所以己方可以立即close，也可以发送一些数据给对方后，再发送FIN报文给对方来表示同意现在关闭连接，因此，己方ACK和FIN一般都会分开发送。
 
 #### 为什么TIME_WAIT状态需要经过2MSL(最大报文段生存时间)才能返回到CLOSE状态？
 
-原因有二：
- 一、保证TCP协议的全双工连接能够可靠关闭
- 二、保证这次连接的重复数据段从网络中消失
+-  保证TCP协议的全双工连接能够可靠关闭
+- 保证这次连接的重复数据段从网络中消失
 
-先说第一点，如果Client直接CLOSED了，那么由于IP协议的不可靠性或者是其它网络原因，导致Server没有收到Client最后回复的ACK。那么Server就会在超时之后继续发送FIN，此时由于Client已经CLOSED了，就找不到与重发的FIN对应的连接，最后Server就会收到RST而不是ACK，Server就会以为是连接错误把问题报告给高层。这样的情况虽然不会造成数据丢失，但是却导致TCP协议不符合可靠连接的要求。所以，Client不是直接进入CLOSED，而是要保持TIME_WAIT，当再次收到FIN的时候，能够保证对方收到ACK，最后正确的关闭连接。
+首先，如果Client直接CLOSED了，那么由于IP协议的不可靠性或者是其它网络原因，导致Server没有收到Client最后回复的ACK。那么Server就会在超时之后继续发送FIN，此时由于Client已经CLOSED了，就找不到与重发的FIN对应的连接，最后Server就会收到RST而不是ACK，Server就会以为是连接错误把问题报告给高层。这样的情况虽然不会造成数据丢失，但是却导致TCP协议不符合可靠连接的要求。所以，Client不是直接进入CLOSED，而是要保持TIME_WAIT，当再次收到FIN的时候，能够保证对方收到ACK，最后正确的关闭连接。
 
-再说第二点，如果Client直接CLOSED，然后又再向Server发起一个新连接，我们不能保证这个新连接与刚关闭的连接的端口号是不同的。也就是说有可能新连接和老连接的端口号是相同的。一般来说不会发生什么问题，但是还是有特殊情况出现：假设新连接和已经关闭的老连接端口号是一样的，如果前一次连接的某些数据仍然滞留在网络中，这些延迟数据在建立新连接之后才到达Server，由于新连接和老连接的端口号是一样的，又因为TCP协议判断不同连接的依据是socket pair，于是，TCP协议就认为那个延迟的数据是属于新连接的，这样就和真正的新连接的数据包发生混淆了。所以TCP连接还要在TIME_WAIT状态等待2倍MSL，这样可以保证本次连接的所有数据都从网络中消失。
+然后，如果Client直接CLOSED，然后又再向Server发起一个新连接，我们不能保证这个新连接与刚关闭的连接的端口号是不同的。也就是说有可能新连接和老连接的端口号是相同的。一般来说不会发生什么问题，但是还是有特殊情况出现：假设新连接和已经关闭的老连接端口号是一样的，如果前一次连接的某些数据仍然滞留在网络中，这些延迟数据在建立新连接之后才到达Server，由于新连接和老连接的端口号是一样的，又因为TCP协议判断不同连接的依据是socket pair，于是，TCP协议就认为那个延迟的数据是属于新连接的，这样就和真正的新连接的数据包发生混淆了。所以TCP连接还要在TIME_WAIT状态等待2倍MSL，这样可以保证本次连接的所有数据都从网络中消失。
 
 
 
 ## 参考链接
 
-   1.维基百科，https://zh.wikipedia.org/wiki/%E4%BC%A0%E8%BE%93%E6%8E%A7%E5%88%B6%E5%8D%8F%E8%AE%AE
-
+1. 维基百科，https://zh.wikipedia.org/wiki/%E4%BC%A0%E8%BE%93%E6%8E%A7%E5%88%B6%E5%8D%8F%E8%AE%AE
 2. RaphetS，https://www.jianshu.com/p/ef892323e68f
-   
+3. 趣谈网络协议，https://time.geekbang.org/column/article/9141
+
