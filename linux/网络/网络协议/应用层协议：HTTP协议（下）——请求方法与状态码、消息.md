@@ -101,8 +101,6 @@ HTTP 请求的一个例子：
 
 
 
-
-
 ### 响应
 
 ![img](https://static001.geekbang.org/resource/image/6b/63/6bc37ddcb4e7a61ca3275790820f2263.jpeg?wh=1761*937)
