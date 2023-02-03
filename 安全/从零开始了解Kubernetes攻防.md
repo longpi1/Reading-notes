@@ -1,6 +1,6 @@
 #                     从零开始了解Kubernetes攻防
 
-> 本文章基于neargle大佬在腾讯发表的博客 **《红蓝对抗中的云原生漏洞挖掘及利用实录》** ，详细内容可以查看https://github.com/neargle/my-re0-k8s-security  或者关注neargle。
+> 本文章转载自neargle大佬在腾讯发表的博客 **《红蓝对抗中的云原生漏洞挖掘及利用实录》** ，详细内容可以查看https://github.com/neargle/my-re0-k8s-security  或者关注neargle。
 
 
 
