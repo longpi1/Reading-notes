@@ -1,5 +1,11 @@
 #             入侵检测——如何实现反弹shell检测？
 
+> 反弹shell的本质：就是控制端监听在某TCP/UDP端口，被控端发起请求到该端口，并将其命令行的输入输出转到控制端。reverse shell与telnet，ssh等标准shell对应，本质上是网络概念的客户端与服务端的角色反转。
+>
+> 反弹shell的结果：一个client上的bash进程 可以和 server上的进程通信。
+>
+> 而反弹shell的检测，本质上就是检测 shell进程（如bash）的输入输出是否来自于一个远程的server。
+
 ## 一、检测思路
 
 ## 1.进程 file descriptor 异常检测
@@ -57,6 +63,48 @@
 针对DNS流量进行分析，判断关联进程是否开启/dev/net/tun，或者/dev/net/tap隧道等等。
 
 
+
+#### 4.3 ICMP反弹shell特征检测
+
+对于正常的ping命令产生的数据，有以下特点：
+
+● 每秒发送的数据包个数比较少，通常每秒最多只会发送两个数据包；
+
+● 请求数据包与对应的响应数据包内容一样；
+
+● 数据包中payload的大小固定，windows下为32bytes，linux下为48bytes；
+
+● 数据包中payload的内容固定，windows下为abcdefghijklmnopqrstuvwabcdefghi，linux下为!”#$%&’()+,-./01234567，如果指定ping发送的长度，则为不断重复的固定字符串；
+
+● type类型只有2种，0和8。0为请求数据，8为响应数据。
+
+对于ICMP隧道产生的数据，有以下特点：
+
+● 每秒发送的数据包个数比较多，在同一时间会产生成百上千个 ICMP 数据包；
+
+● 请求数据包与对应的响应数据包内容不一样；
+
+● 数据包中 payload的大小可以是任意大小；
+
+● 存在一些type为13/15/17的带payload的畸形数据包；
+
+● 个别ICMP隧道工具产生的数据包内容前面会增加 ‘TUNL’ 标记以用于识别隧道。
+
+因此，根据正常ping和ICMP隧道产生的数据包的特点，可以通过以下几点特征检测ICMP隧道:
+
+● 检测同一来源数据包的数量。正常ping每秒只会发送2个数据包，而ICMP隧道可以每秒发送很多个；
+
+● 检测数据包中 payload 的大小。正常ping产生的数据包payload的大小为固定，而ICMP隧道数据包大小可以任意；
+
+● 检测响应数据包中 payload 跟请求数据包是否不一致。正常ping产生的数据包请求响应内容一致，而ICMP隧道请求响应数据包可以一致，也可以不一致；
+
+● 检测数据包中 payload 的内容。正常ping产生的payload为固定字符串，ICMP隧道的payload可以为任意；
+
+● 检测 ICMP 数据包的type是否为0和8。正常ping产生的带payload的数据包，type只有0和8，ICMP隧道的type可以为13/15/17。
+
+![图片名称](https://blog.riskivy.com/wp-content/uploads/2019/04/p6.png)
+
+具体实现可参考https://blog.riskivy.com/%E5%9F%BA%E4%BA%8E%E7%BB%9F%E8%AE%A1%E5%88%86%E6%9E%90%E7%9A%84icmp%E9%9A%A7%E9%81%93%E6%A3%80%E6%B5%8B%E6%96%B9%E6%B3%95%E4%B8%8E%E5%AE%9E%E7%8E%B0/
 
 ## 二、具体实现举例
 
@@ -149,7 +197,7 @@ func GetProcessConnection(pid int, clientPort *share.CLUSProtoPort, inodes utils
 
 **以上方式的缺点为：仅能通过进程执行文件名判断是否为Shell进程，上传可执行文件、拷贝Bash文件到其他路径等方法会绕过这个方法**。
 
-除此以外，还可以对特定场景进行分析，进程对应的fd是否异常并且外联；
+除此以外，还可以对特定场景进行分析，进程对应的fd是否异常并且外联，开源代码可参考：https://github.com/zhanghaoyil/seesaw；
 
 
 
@@ -162,4 +210,6 @@ func GetProcessConnection(pid int, clientPort *share.CLUSProtoPort, inodes utils
 ## 四、参考链接
 
 1. [郑瀚Andrew](https://home.cnblogs.com/u/LittleHann/)的 [反弹Shell原理及检测技术研究](https://www.cnblogs.com/LittleHann/p/12038070.html)
+
+   
 
