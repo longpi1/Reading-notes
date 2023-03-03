@@ -1,4 +1,4 @@
-#                    Go 使用 fanotify 监听文件
+#                    Go 使用 fsnotify 监听文件
 
 > 主要内容转载自**Golang语言开发栈**的[Go 语言跨平台文件监听库 fsnotify 怎么使用？](https://mp.weixin.qq.com/s/tJ1LvDf14EKg-qQlJUQapQ)
 
