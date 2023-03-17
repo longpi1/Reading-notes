@@ -1,4 +1,4 @@
-#                  应用层协议：SSL/TLS协议
+#                                        应用层协议：SSL/TLS协议
 
 > 转载自flydean大佬的一篇文章[让你彻底弄懂SSL/TLS协议](https://zhuanlan.zhihu.com/p/133375078)
 
