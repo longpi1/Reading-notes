@@ -23,7 +23,7 @@ pause 容器的景象大小在 500 KB 左右, 特别的轻便, 另外该容器�
 kubelet 有个 `--pod-infra-container-image` 参数就是控制 pause 的容器镜像地址. 
 
 ```
---pod-infra-container-image=registry.cn-hangzhou.aliyuncs.com/google_containers/pause-amd64:3.5
+--pod-infra-container-image=xxx：xx
 ```
 
 #### k8s pod 开启了哪些 namespace 共享
@@ -165,13 +165,13 @@ int main(int argc, char **argv) {
 
 什么是僵尸进程 ? 简单说当子进程已经退出, 但因为其父进程没有回收释放, 导致仍然在进程表中的存在. 这里父进程需要调用 `waitpid` 系统调用来回收进行. 其实直接在 main 里配置忽略 `SIGCHLD` 信号也可以, 这样子进程的僵尸回收交给了 init 首进程, 也就是内核进程帮忙回收, 但不适合容器场景.
 
-没学过 apue 进程方面同学, 可以学下 孤儿进程和僵尸进程是怎么一回事.
+没学过 apue 进程方面, 可以学下 孤儿进程和僵尸进程是怎么一回事.
 
 [https://linux.die.net/man/2/waitpid](https://linux.die.net/man/2/waitpid)
 
 ### kubelet pause 容器的操作
 
-`SyncPod` 是 kubelet 组件创建 pod 的核心方法. 关于 kubelet 创建 pod 原理这里就不再复述, 有兴趣的同事看下以前写过的 kubelet 原理文章.
+`SyncPod` 是 kubelet 组件创建 pod 的核心方法
 
 简化描述下 syncpod 的实现流程. 首先创建一个沙盒容器, 所谓的沙盒容器就是 pause 容器. 后面再分别启动临时容器, init 容器, 业务的容器. 在创建这些容器时, 需要传入 pause 容器的 id, 结合上面的 pause 容器可以分析出 docker 容器之前需要做 namespace 的共享.
 
