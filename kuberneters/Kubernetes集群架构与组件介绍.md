@@ -100,6 +100,12 @@ kubectl是Kubernetes官方提供的命令行工具CLI，用户可以通过命令
 
 
 
+## 四、源码分析
+
+https://github.com/longpi1/Reading-notes/tree/main/kuberneters/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90
+
+
+
 ## 参考链接
 
 1.https://raw.githubusercontent.com/kubernetes

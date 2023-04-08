@@ -1,4 +1,4 @@
-#                                源码分析 kubernetes kube-proxy 的实现原理
+#                        源码分析 kubernetes kube-proxy 的实现原理
 
 > 主要内容转载自https://github.com/rfyiamcool/notes
 
