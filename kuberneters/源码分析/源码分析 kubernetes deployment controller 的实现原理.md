@@ -1,5 +1,7 @@
 # 源码分析 kubernetes deployment controller 的实现原理
 
+> 主要内容转载自https://github.com/rfyiamcool/notes
+
 ## 概述
 
 **DeploymentController**
