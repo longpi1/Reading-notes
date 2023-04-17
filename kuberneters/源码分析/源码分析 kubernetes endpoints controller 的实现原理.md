@@ -1,6 +1,16 @@
 # 源码分析 kubernetes endpoints controller 的实现原理
 
-> 主要内容转载自https://github.com/rfyiamcool/notes
+> 主要内容转载自https://github.com/rfyiamcool/notes与[K8s 中 Service、Endpoints、Pod 之间的关系](https://blog.csdn.net/catoop/article/details/122072608)
+
+## pod、service、endpoints 三者之间的关系
+
+Endpoints 是一组实际服务的端点集合。一个 Endpoint 是一个可被访问的服务端点，即一个状态为 running 的 pod 的可访问端点。一般 Pod 都不是一个独立存
+
+**关系图如下：**
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/66a7aa14874347a49fa0811404e9d3fe.png?x-oss-process=image/watermark,type_d3F5LXplbmhlaQ,shadow_50,text_Q1NETiBAY2F0b29w,size_20,color_FFFFFF,t_70,g_se,x_16)
+
+![在这里插入图片描述](https://img-blog.csdnimg.cn/fc4b03e87d3b440d9fc7ecaaeed4f01d.png?x-oss-process=image/watermark,type_d3F5LXplbmhlaQ,shadow_50,text_Q1NETiBAY2F0b29w,size_20,color_FFFFFF,t_70,g_se,x_16)
 
 ## 源码分析
 
