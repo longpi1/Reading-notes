@@ -61,7 +61,7 @@ func (kl *Kubelet) StartGarbageCollection() {
 
 `GarbageCollect` 容器垃圾回收的过程:
 
-1. 垃圾爱清理被驱逐的容器
+1. 垃圾清理被驱逐的容器
 2. 垃圾清理沙箱 sandboxes
 3. 清理挂掉 pods 的日志文件
 
