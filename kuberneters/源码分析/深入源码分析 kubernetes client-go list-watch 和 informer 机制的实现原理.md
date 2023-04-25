@@ -40,7 +40,7 @@ index 就是存储了索引, 其目的就是为了加速数据的检索. 通过�
 
 因本文篇幅略长, 所以把 `sharedIndexInformer` 和 `SharedInformerFactory` 的实现原理放到这里.
 
-[深入源码分析 kubernetes client-go sharedIndexInformer 和 SharedInformerFactory 的实现原理](https://github.com/rfyiamcool/notes/blob/main/kubernetes_client_go_shared_informer.md)
+[深入源码分析 kubernetes client-go sharedIndexInformer 和 SharedInformerFactory 的实现原理](https://github.com/longpi1/notes/blob/main/kubernetes_client_go_shared_informer.md)
 
 ## Reflector 的实现原理
 
