@@ -1,12 +1,12 @@
 ## 源码分析 kubernetes ingress nginx controller 控制器的实现原理
 
-> 主要内容转载自https://github.com/rfyiamcool/notes
+> 主要内容转载自https://github.com/rfyiamcool/notes，基于 kubernetes/ingress-nginx `v1.5.1` 源码分析, ingress-nginx 里的 controller 控制器是 golang 开发的. 而 ingress-nginx 容器内使用了官方的 nginx, 没有直接使用 openresty, 原生 nginx 编译时打入了 lua / luajit 模块, 但引用的三方的库包是属于 openresty 社区里的. 在这看 ingress-nginx 详细的 lua 库包引用信息.
+>
+> [https://github.com/kubernetes/ingress-nginx/blob/21aa7f55a3/images/nginx/rootfs/build.sh]
+
+实现流程如下图：
 
 ![](https://xiaorui-cc.oss-cn-hangzhou.aliyuncs.com/images/202301/202301010021497.png)
-
-本文基于 kubernetes/ingress-nginx `v1.5.1` 源码分析, ingress-nginx 里的 controller 控制器是 golang 开发的. 而 ingress-nginx 容器内使用了官方的 nginx, 没有直接使用 openresty, 原生 nginx 编译时打入了 lua / luajit 模块, 但引用的三方的库包是属于 openresty 社区里的. 在这看 ingress-nginx 详细的 lua 库包引用信息.
-
-[https://github.com/kubernetes/ingress-nginx/blob/21aa7f55a3/images/nginx/rootfs/build.sh](https://github.com/kubernetes/ingress-nginx/blob/21aa7f55a3/images/nginx/rootfs/build.sh)
 
 #### ingress-nginx 为什么没有直接使用 openresty?
 

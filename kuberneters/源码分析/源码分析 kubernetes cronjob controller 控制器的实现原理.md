@@ -100,7 +100,7 @@ func (jm *ControllerV2) worker(ctx context.Context) {
 	}
 }
 
-func (jm *ControllerV2) processNextWorkItem(ctx context.Context) bool {
+func (jm *ControllerV2) processNextWorkItem(ctx context.Context) bool {7U
 	// 从队列后去 cronjob 的 key
 	key, quit := jm.queue.Get()
 	if quit {
@@ -454,6 +454,7 @@ cronjob 内部会判断当前计算出来的 scheduledTime 是否跟 LastSchedul
 
 ```go
 func (jm *ControllerV2) cleanupFinishedJobs(ctx context.Context, cj *batchv1.CronJob, js []*batchv1.Job) bool {
+    // JobsHistoryLimit为可选的字段指定了可以保留多少完成和失败的 Job。如何没有失败任务和成功任务历史限制的设置，则直接无需清空，默认为1和3
 	if cj.Spec.FailedJobsHistoryLimit == nil && cj.Spec.SuccessfulJobsHistoryLimit == nil {
 		return false
 	}
