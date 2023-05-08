@@ -10,9 +10,28 @@ Kubernetes 的 HorizontalPodAutoscaler (hpa) 组件可以根据目标的资源�
 
 比如, 当 deployment 关联的 pods 负载超过阈值时, hpa 对其进行动态扩容, 但扩容的副本数不能超过 `maxReplicas`. 反之, 如果 pods 负载减少, 则进行动态缩容.
 
-### hpa 的配置例子
+### HPA动态伸缩原理
 
-分析 hpa 源码之前, 需要先理解 hpa 的配置选项, 不然不好理解后面的代码分析.
+分析 hpa 源码之前, 需要先理解 hpa 的伸缩原理 ，方便理解后面的代码分析.
+
+HPA在kubernetes中也由一个controller控制，controller会间隔循环HPA，检查每个HPA中监控的指标是否触发伸缩条件，默认的间隔时间为15s。一旦触发伸缩条件，controller会向kubernetes发送请求，修改伸缩对象（statefulSet、replicaController、replicaSet）子对象scale中控制pod数量的字段。kubernetess响应请求，修改scale结构体，然后会刷新一次伸缩对象的pod数量。伸缩对象被修改后，自然会通过list/watch机制增加或减少pod数量，达到动态伸缩的目的。
+
+- 对于每个pod的资源指标(如CPU)，控制器从资源指标API中获取每一个HorizontalPodAutoscaler指定的pod的指标，如果设置了目标使用率，控制器会获取每个Pod中的容器资源使用情况，并计算资源使用率。如果使用原始值，将直接使用原始数据，进而计算出目标副本数。这里注意的是，如果Pod某些容器不支持资源采集，那么该控制器将不会使用该pod的CPU使用率。
+- 如果pod使用自定义指标，控制器机制与资源指标类型，区别在于自定义的指标只适用原始值，而不是利用率。
+- 如果pod使用的对象指标和外部指标(每个指标描述一个对象信息)，这个指标将直接跟目标指标设定值相比较，并生成一个上述的缩放比例。在最新的autoscaling/v2beta2版本API中，这个指标也可以根据pod数量平分后再进行计算。通常情况，控制器从一系列的聚合API(metrics.k8s.io，custom.metrics.k8s.io和external.metrics.k8s.io)中获取指标数据。metrics.k8s.io API通常由metrics-server(这里需要额外启动)提供。
+
+### HPA伸缩流程
+
+HPA的主要伸缩流程如下：
+1）判断当前Pod数量是否在HPA设定的Pod数量空间中，如果不在，过小返回最小值，过大返回最大值，结束伸缩。
+2）判断指标的类型，并向api server发送对应的请求，拿到设定的监控指标。一般来说指标会从下面系列聚合API中获取(metrics.k8s.io，custom.metrics.k8s.io和external.metrics.k8s.io)。其中metrics.k8s.io一般由kubernetes自带的metrics-server来提供，主要是cpu、memory使用率指标。另外两种需要第三方的adapter来提供。custom.metrics.k8s.io提供的自定义指标数据，一般与kubernetes集群有关，比如跟特定的pod相关。external.metrics.k8s.io同样提供自定义指标数据，但一般与kubernetes集群无关，许多知名的第三方监控平台提供了adapter实现上述api(如prometheus)，可以将监控和adapter一同部署在kubenetes集群中提供服务。甚至能够替换原来的metrics-server来提供上述三类api指标，达到深度定制监控数据的目标。
+3）根据获取的指标，使用相关的算法计算出一个伸缩系数，并乘以当前pod数量以获得期望的pod数量。这里系数是指标的期望值与目前值的比值，如果大于1表示扩容，小于1表示缩容。指数数值有平均值(AverageValue)、平均使用率(Utilization)、裸值(Value)三种类型* * 每种类型的数值都有对应的算法。注意下面事项：如果系数有小数点，统一进一；系数如果未达到某个容忍值，HPA认为变化太小，会忽略这次变化，容忍值默认为0.1。
+
+- 这里HPA扩容算法比较保守，如果出现获取不到指标的情况，扩容时算最小值，缩容时算最大值。如果需要计算平均值，出现pod没准备好的情况，我们保守地假设尚未就绪的pods消耗了试题指标的0%，从而进一步降低了伸缩的幅度。
+- 一个HPA支持多个指标的监控，HPA会循环获取所有的指标，并计算期望的pod数量，并从期望结果中获得最大的pod数量作为最终的伸缩的pod数量。一个伸缩对象在k8s中允许对应多个HPA，但是只是k8s不会报错而已，事实上HPA彼此不知道自己监控的是同一个伸缩对象，在这个伸缩对象中的pod会被多个HPA无意义地来回修改pod数量，给系统增加消耗，如果想要指定多个监控指标，可以如上述所说，在一个HPA中添加多个监控指标。
+- 检查最终pod数量是否在HPA设定的pod数量范围的区间，如果超过最大值或不足最小值都会修改为最大值或者最小值。然后会向kubernetes发出请求，修改伸缩对象的子对象scale的pod数量，结束一个HPA的检查，获取下一个HPA，完成一个伸缩流程。
+
+### hpa 的配置例子
 
 下面的 hpa 的配置中定义了最大和最小的副本数, 无论怎么超过定义的资源负载阈值, 不会超过 hpa 中定义的最大的副本数 10. 一样的逻辑, 不管 pods 再怎么空闲, 副本数也不能低于 5 个. 
 
@@ -48,7 +67,6 @@ spec:
       - type: Pods
         value: 1
         periodSeconds: 15
-
   metrics:
     - type: Resource
       resource:
