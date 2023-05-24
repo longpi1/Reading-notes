@@ -405,9 +405,9 @@ func init() {
 
 ## vxlan 网络通信的实现原理
 
-下图为 vxlan 跨主机的网络通信架构.
+> **ARP: ARP表：** 用来将IP地址解析为MAC地址的协议   **FDB:二层MAC地址表**。 记录MAC、端口、VLAN的对应关系。**ROUTE**：路由关系
 
-![](https://xiaorui-cc.oss-cn-hangzhou.aliyuncs.com/images/202302/202302042019492.png)
+下图为 vxlan 跨主机的网络通信架构![](https://xiaorui-cc.oss-cn-hangzhou.aliyuncs.com/images/202302/202302042019492.png)
 
 下图为 vxlan network 的实现原理.
 
@@ -924,5 +924,3 @@ flannal host-gw 方案当前只适用于同一个二层网络下, node 之间需
 flannel 的实现原理大体分析完了, 其原理就是监听 etcd 或者 k8s apiserver 的 node 对象, 从 node 资源对象中解析到 spec.PodCIDR 等字段来构建 lease 对象. 根据 backend 的类型构建不同的 network 对象. 
 
 network 控制器从 subnet manager 监听获取 lease 对象, 然后配置网络. vxlan network 则需要进行 ARP, FDB, Route 配置流程, 而 host-gw 只需配置路由 route 规则即可.
-
-本文主要分析的 flannel 的代码实现过程, 后面会跟进继续分析 calico 和 cilium 的实现原理, 请关注订阅 [http://github.com/rfyiamcool/notes](http://github.com/rfyiamcool/notes)
