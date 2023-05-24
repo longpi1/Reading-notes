@@ -6,7 +6,9 @@
 
 > *Suppose you see a bird walking around in a farm yard. This bird has no label that says 'duck'. But the bird certainly looks like a duck. Also, he goes to the pond and you notice that he swims like a duck. Then he opens his beak and quacks like a duck. Well, by this time you have probably reached the conclusion that the bird is a duck, whether he's wearing a label or not.*
 
-上述是对于**鸭子类型**的最有名的阐述。意思是对于事物类型的判断， 不取决于事物本身预设的标签（label）， 而取决于判断者判断时需要用到的条件， 如果事物拥有符合条件的属性，那么在判断者眼中它就是那种类型。
+上述是对于**鸭子类型**的最有名的阐述。意思是对于事物类型的判断， 不取决于事物本身预设的标签（label）， 而取决于判断者判断时需要用到的条件， 如果事物拥有符合条件的属性，那么在判断者眼中它就是那种类型。当看到一只鸟走起来像鸭子、游泳起来像鸭子、叫起来也像鸭子，那么这只鸟就可以被称为鸭子。
+
+在鸭子类型中，关注点在于对象的行为，能做什么；而不是关注对象所属的类型。例如，在不使用鸭子类型的语言中，我们可以编写一个函数，它接受一个类型为“鸭子”的对象，并调用它的“走”和“叫”方法。在使用鸭子类型的语言中，这样的一个函数可以接受一个任意类型的对象，并调用它的“走”和“叫”方法。如果这些需要被调用的方法不存在，那么将引发一个运行时错误。任何拥有这样的正确的“走”和“叫”方法的对象都可被函数接受的这种行为引出了以上表述，这种决定类型的方式因此得名。
 
 在程序设计中，鸭子类型（英语：Duck typing）是动态类型和某些静态语言的一种对象推断风格。这种风格适用于动态语言(比如PHP、Python、Ruby、Typescript、Lua、JavaScript、Java、Groovy、C#等)和静态语言(比如Golang来说，静态类型语言在编译时便已确定了变量的类型，但是Golang的实现是：在编译时推断变量的类型)，支持"鸭子类型"的语言的解释器/编译器将会在解析(Parse)或编译时，推断对象的类型。
 

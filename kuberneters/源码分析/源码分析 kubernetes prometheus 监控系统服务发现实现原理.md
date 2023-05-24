@@ -12,7 +12,7 @@
 
 ## prometheus provider 初始化入口
 
-`ApplyConfig` 用来实例化 service discovery provider 对象, 并把 sd provider 注册到集合里, 然后遍历集合启动 provider.
+`ApplyConfig` 用来实例化 service discovery provider 对象, 并把 sd provider 注册到集合里, 然后遍历集合启动 provider.b 
 
 代码位置: `discovery/manager.go`
 
