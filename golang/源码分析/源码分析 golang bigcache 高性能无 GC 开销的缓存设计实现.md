@@ -6,7 +6,7 @@
 
 bigcache 内部使用分片来存储数据，每个分片内又使用 hashmap 存储key 的索引，而真正的数据通过编码后放在 ringbuffer 里。bigcache 没有使用主流的 lru 和 lfu 缓存淘汰算法，而是使用覆盖写来覆盖老数据，在 ringbuffer 已满时，先删除老数据，再尝试插入新数据。另外还通过 gc 垃圾回收期删掉过期的数据。
 
-由于 bigcache 里数据是存在 `[]byte` 类型的 ringbuffer 里，所以传入的 value 只能 `[]byte`，不能存储其他类型。这样应用场景很是受限，毕竟业务上缓存的对象较为复杂，如果每次存取都需要序列化和反序列化，那么在一定量级下 CPU 开销会很可观。
+由于 bigcache 里数据是存在 `[]byte` 类型的 ringbuffer 里，所以**传入的 value 只能 `[]byte`，不能存储其他类型**。这样应用场景很是受限，毕竟业务上缓存的对象较为复杂，如果每次存取都需要序列化和反序列化，那么在一定量级下 CPU 开销会很可观。
 
 > bigcache 的实现原理跟 freecache、fastcache 大同小异，都使用了 ringbuffer 存放数据，可以很大程度降低 GC 的开销。这里的 ringbuffer 当然可以使用有名或匿名的 mmap 来构建，俗称堆外内存，但对于 golang gc 来说，mmap 和直接申请 `[]byte` 的 gc 开销没大区别。如果使用文件 mmap 映射，当系统一直有文件读写，势必会对 page cache 进行 page 淘汰，这样基于 mmap 构建的 ringbuffer，必然会受之影响。
 
@@ -580,6 +580,6 @@ func (s *cacheShard) isExpired(oldestEntry []byte, currentTimestamp uint64) bool
 
 其二 bigcache 不能支持除了 `[]byte` 以外的数据结构，毕竟业务上的对象多为自定义 `struct`。大家存取时不能每次都进行 encode、decode 编解码吧？毕竟使用社区中有一堆黑科技的 sonic json 库，序列化小对象也至少几十个 us，反序列化更是序列化的两倍。
 
-个人更推荐使用 `ristretto` 构建业务的进程内缓存，其实现原理文章如下。
+关于业务缓存，更推荐使用 `ristretto` 构建业务的进程内缓存，其实现原理文章如下。
 
-[golang ristretto 高性能缓存的设计实现原理](https://github.com/rfyiamcool/notes/blob/main/golang_ristretto_cache.md)
+[golang ristretto 高性能缓存的设计实现原理](https://github.com/longpi1/Reading-notes/blob/main/golang)
