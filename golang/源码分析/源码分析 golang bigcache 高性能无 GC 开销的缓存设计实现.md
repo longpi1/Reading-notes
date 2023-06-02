@@ -582,4 +582,4 @@ func (s *cacheShard) isExpired(oldestEntry []byte, currentTimestamp uint64) bool
 
 关于业务缓存，更推荐使用 `ristretto` 构建业务的进程内缓存，其实现原理文章如下。
 
-[golang ristretto 高性能缓存的设计实现原理](https://github.com/longpi1/Reading-notes/blob/main/golang)
+[golang ristretto 高性能缓存的设计实现原理](https://github.com/longpi1/Reading-notes/blob/main/golang/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%20golang%20ristretto%20%E9%AB%98%E6%80%A7%E8%83%BD%E7%BC%93%E5%AD%98%E7%9A%84%E8%AE%BE%E8%AE%A1%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86.md)
