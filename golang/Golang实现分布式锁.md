@@ -319,6 +319,11 @@ etcd 中没有像 ZooKeeper 那样的 Sequence 节点。所以其锁实现和基
 
 ## [6 基于 consul]()
 
+基于Consul的分布式锁主要利用Key/Value存储API中的acquire和release操作来实现。acquire和release操作是类似Check-And-Set的操作：
+
+- acquire操作只有当锁不存在持有者时才会返回true，并且set设置的Value值，同时执行操作的session会持有对该Key的锁，否则就返回false
+- release操作则是使用指定的session来释放某个Key的锁，如果指定的session无效，那么会返回false，否则就会set设置Value值，并返回true
+
 ```go
 lock := &api.LockOptions{
     Key:         "lock",
@@ -357,7 +362,7 @@ if err != nil {
 
 ```
 
-这将创建一个名为“lock”的锁，通过Acquire方法尝试获取它。如果成功，将返回true。否则，将返回false。最后通过通过Release方法释放锁
+这将创建一个名为“lock”的锁，通过Acquire方法尝试获取它。如果成功，将返回true。否则，将返回false。最后通过通过Release方法释放锁；
 
 流程类似于etcd使用lock的流程；
 

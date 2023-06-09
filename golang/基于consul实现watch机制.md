@@ -24,6 +24,8 @@ consul官方提供了[Golang版的watch包](https://link.juejin.cn?target=https%
 
 接下来我将基于封装了的相关处理函数的工具包进行解决，详细代码可通过https://github.com/longpi1/consul-tool 进行下载查看。
 
+监听实现可参考：https://github.com/mitchellh/consulstructure
+
 1.客户端client.go 用于初始consul相关配置以及封装consul的api库的基础操作
 
 ```golang
