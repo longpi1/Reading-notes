@@ -1,5 +1,7 @@
 # 详解Golang内存管理
 
+> 主要内容转载自[一站式Golang内存洗髓经](https://learnku.com/articles/68142#replies)，阅读之前建议先了解GMP原理：https://github.com/longpi1/Reading-notes/blob/main/golang/Golang%E7%9A%84%E5%8D%8F%E7%A8%8B%E8%B0%83%E5%BA%A6%E5%99%A8%E5%8E%9F%E7%90%86%E5%8F%8AGMP%E8%AE%BE%E8%AE%A1%E6%80%9D%E6%83%B3.md
+
 在了解Golang的内存管理之前，一定要了解的基本申请内存模式，即TCMalloc（Thread Cache Malloc）。Golang的内存管理就是基于TCMalloc的核心思想来构建的。本节将介绍TCMalloc的基础理念和结构。
 
 ### 1.1 TCMalloc
@@ -230,15 +232,7 @@ Golang内存管理针对Size Class对衡量内存的的概念又更加详细了�
 
 ###### 图 15 Object Size与Span的关系
 
-
-
-上图中的Num Of Object表示当前Span中一共存在多少个Object。
-
-
-
-注意 Page是Golang内存管理与操作系统交互衡量内存容量的基本单元，Golang内存管理内部本身用来给对象存储内存的基本单元是Object。
-
-
+上图中的Num Of Object表示当前Span中一共存在多少个Object。注意 Page是Golang内存管理与操作系统交互衡量内存容量的基本单元，Golang内存管理内部本身用来给对象存储内存的基本单元是Object。
 
 （2）Size Class，Golang内存管理中的Size Class与TCMalloc所表示的设计含义是一致的，都表示一块内存的所属规格或者刻度。Golang内存管理中的Size Class是针对Object Size来划分内存的。也是划分Object大小的级别。比如Object Size在1Byte~8Byte之间的Object属于Size Class 1级别，Object Size 在8B~16Byte之间的属于Size Class 2级别。
 
