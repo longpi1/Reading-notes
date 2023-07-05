@@ -1,5 +1,7 @@
 # 计算机操作系统
 
+> 更细节可查看：[小林coding](https://xiaolincoding.com/)
+
 装载自[CS-Notes](https://github.com/CyC2018/CS-Notes/)
 
 - [整体概述](计算机操作系统%20-%20整体概述.md)
