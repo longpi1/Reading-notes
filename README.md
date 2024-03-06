@@ -104,7 +104,7 @@
 |                           Project                            | Version | Describe                   |
 | :----------------------------------------------------------: | :-----: | :------------------------- |
 | [面试相关](https://github.com/longpi1/Reading-notes/tree/main/杂记/面试相关) |         |                            |
-| [阅读笔记](https://github.com/longpi1/Reading-notes/tree/main/杂记/阅读笔记) |         | 课程以及书本相关的阅读笔记 |
+| [读书笔记](https://github.com/longpi1/Reading-notes/tree/main/杂记/读书笔记) |         | 课程以及书本相关的阅读笔记 |
 | [排错笔记汇总](https://github.com/longpi1/Reading-notes/tree/main/杂记/排错笔记汇总) |         |                            |
 | [开源项目](https://github.com/longpi1/Reading-notes/tree/main/杂记/开源项目) |         | 开源项目的阅读笔记         |
 
