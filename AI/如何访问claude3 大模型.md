@@ -1,6 +1,6 @@
 # 如何不需要注册也能访问 Claude3 大模型
 
-> 随着Claude3大模型的出世，大模型霸主地位已经发生易位，但是国内使用Claude3官网 无论是注册都不容易，本篇文章主要介绍如何不通过Claude3 官网实现Claude3 大模型的使用，注意这里主要介绍如何使用sonnnet模型版本，最好的opus模型需要去官网付费使用
+> 随着Claude3大模型的出世，大模型霸主地位已经发生易位，但是国内使用Claude3官网 无论是注册都不容易，本篇文章主要介绍如何不通过Claude3 官网实现Claude3 大模型的使用
 
 ![全面超越GPT-4，Claude 3终于来了](https://pic2.zhimg.com/v2-5bdbbea3a25c151370951f55c2832105_b.jpg)
 
@@ -49,6 +49,19 @@
 
 
 ## 二、直接通过第三方代理
+
+### Chatbot Arena（可以用opus）
+
+**网址：**
+
+https://arena.lmsys.org/
+
+**优缺点：**
+
+可以体验多个模型也可以就行比较对比，和简单的参数调整，其中也可以使用claude3 opus模型,**强烈推荐！！！！**
+
+![image.png](https://s2.loli.net/2024/03/07/fFYiJCu81RQanEl.jpg)
+
 
 ### yeschat.ai
 
