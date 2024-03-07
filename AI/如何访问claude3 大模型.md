@@ -5,8 +5,34 @@
 ![全面超越GPT-4，Claude 3终于来了](https://pic2.zhimg.com/v2-5bdbbea3a25c151370951f55c2832105_b.jpg)
 
 
+## 一、直接通过第三方代理
 
-## 一、通过亚马逊**Amazon Bedrock**直接使用模型
+### Chatbot Arena（可以用opus）
+
+**网址：**
+
+https://arena.lmsys.org/
+
+**优缺点：**
+
+可以体验多个模型也可以就行比较对比，和简单的参数调整，其中也可以使用claude3 opus模型,**强烈推荐！！！！**
+
+![image.png](https://s2.loli.net/2024/03/07/fFYiJCu81RQanEl.jpg)
+
+
+### yeschat.ai
+
+**网址：**
+
+https://www.yeschat.ai/zh-CN/yeschat/58dbf07dc47d4106b58eb367af19d47a
+
+**优缺点：**
+
+免费版访问次数规定时间内有限制，不过一般大家都是够用的，而且也能够使用GPT4
+
+
+
+## 二、通过亚马逊**Amazon Bedrock**直接使用模型
 
  Claude 3 Sonnet 模型目前已经可以直接通过亚马逊**Amazon Bedrock**直接使用模型，体验地址如下：[CloudAssist](https://portal.cloudassist-beta.sign-up.china.aws.a2z.com/demo/qrcode?trk=community)
 
@@ -48,27 +74,3 @@
 
 
 
-## 二、直接通过第三方代理
-
-### Chatbot Arena（可以用opus）
-
-**网址：**
-
-https://arena.lmsys.org/
-
-**优缺点：**
-
-可以体验多个模型也可以就行比较对比，和简单的参数调整，其中也可以使用claude3 opus模型,**强烈推荐！！！！**
-
-![image.png](https://s2.loli.net/2024/03/07/fFYiJCu81RQanEl.jpg)
-
-
-### yeschat.ai
-
-**网址：**
-
-https://www.yeschat.ai/zh-CN/yeschat/58dbf07dc47d4106b58eb367af19d47a
-
-**优缺点：**
-
-免费版访问次数规定时间内有限制，不过一般大家都是够用的，而且也能够使用GPT4
