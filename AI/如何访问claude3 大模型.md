@@ -1,13 +1,14 @@
-# 如何不需要注册也能访问 Claude3 大模型
+# 不注册访问 Claude3 大模型
 
-> 随着Claude3大模型的出世，大模型霸主地位已经发生易位，但是国内使用Claude3官网 无论是注册都不容易，本篇文章主要介绍如何不通过Claude3 官网实现Claude3 大模型的使用
+> 随着Claude3大模型的出世，大模型霸主地位已经发生易位，但是国内使用Claude3官网 无论是注册都不容易，本篇文章主要介绍如何不通过Claude3 官网实现Claude3 大模型的使用，**这里优先推荐Chatbot Arena**
 
 ![全面超越GPT-4，Claude 3终于来了](https://pic2.zhimg.com/v2-5bdbbea3a25c151370951f55c2832105_b.jpg)
 
 
+
 ## 一、直接通过第三方代理
 
-### Chatbot Arena（可以用opus）
+### Chatbot Arena（可以用opus，官网需要付费）
 
 **网址：**
 
