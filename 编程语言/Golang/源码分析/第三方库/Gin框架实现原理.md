@@ -21,7 +21,7 @@
 
 下面从一个简单的包含基础路由和路由组路由的demo开始分析：
 
-```
+```go
 func main() {
  // 初始化
  mux := gin.Default()
@@ -90,7 +90,7 @@ func main() {
 
 初始化步骤主要是初始化engine与加载两个默认的中间件：
 
-```
+```go
 func Default(opts ...OptionFunc) *Engine {
     debugPrintWARNINGDefault()
  // 初始化engine实例
@@ -110,7 +110,7 @@ engine是gin中的核心对象，gin通过 Engine 对象来定义服务路由信
 - addRoute: 用于添加 URL 请求处理器，它会将对应的路径和处理器挂接到相应的请求树中。
 - RouterGroup: 内部有一个前缀路径属性(basePath)，它会将所有的子路径都加上这个前缀再放进路由树中。有了这个前缀路径，就可以实现 URL 分组功能。
 
-```
+```go
 func New(opts ...OptionFunc) *Engine {
     debugPrintWARNINGNew()
     engine := &Engine{
@@ -152,7 +152,7 @@ func New(opts ...OptionFunc) *Engine {
 
 Engine.Use函数用于将中间件添加到当前的路由上，位于gin.go中，代码如下：
 
-```
+```go
 // Use attaches a global middleware to the router. ie. the middleware attached though Use() will be
 // included in the handlers chain for every single request. Even 404, 405, static files...
 // For example, this is the right place for a logger or error management middleware.
@@ -168,7 +168,7 @@ func (engine *Engine) Use(middleware ...HandlerFunc) IRoutes {
 
 实际上，还需要进一步调用`engine.RouterGroup.Use(middleware...)`完成实际的中间件注册工作，函数位于gin.go中，代码如下：
 
-```
+```go
 // Use adds middleware to the group, see example code in GitHub.
 func (group *RouterGroup) Use(middleware ...HandlerFunc) IRoutes {
  group.Handlers = append(group.Handlers, middleware...)
@@ -180,7 +180,7 @@ func (group *RouterGroup) Use(middleware ...HandlerFunc) IRoutes {
 
 ###### **HandlerFunc**
 
-```
+```go
 type HandlerFunc func(*Context)
 ```
 
@@ -192,7 +192,7 @@ type HandlerFunc func(*Context)
 2. 提供了很多内置的数据绑定和响应形式，JSON、HTML、Protobuf 、MsgPack、Yaml 等，它会为每一种形式都单独定制一个渲染器
 3. engine的 `ServeHTTP` 函数，在响应一个用户的请求时，都会先从临时对象池中取一个context对象。使用完之后再放回临时对象池。为了保证并发安全，如果在一次请求新起一个协程，那么一定要copy这个context进行参数传递。
 
-```
+```go
 type Context struct {
     writermem responseWriter
     Request   *http.Request  // 请求对象
@@ -209,7 +209,7 @@ type Context struct {
 
 调用绑定函数：
 
-```
+```go
 mux.GET("/ping", func(c *gin.Context) {
     c.String(http.StatusOK, "ping")
 })
@@ -217,7 +217,7 @@ mux.GET("/ping", func(c *gin.Context) {
 
 函数实际上走到了engine对象的匿名成员RouterGroup的handle函数中
 
-```
+```go
 // POST is a shortcut for router.Handle("POST", path, handlers). 
 func (group *RouterGroup) POST(relativePath string, handlers ...HandlerFunc) IRoutes {
     return group.handle(http.MethodPost, relativePath, handlers)
@@ -246,13 +246,13 @@ func (group *RouterGroup) PUT(relativePath string, handlers ...HandlerFunc) IRou
 
 绑定逻辑：
 
-```
+```go
 func (group *RouterGroup) handle(httpMethod, relativePath string, handlers HandlersChain) IRoutes {
     // 使用相对路径与路由组basePath 计算绝对路径
     absolutePath := group.calculateAbsolutePath(relativePath)
- // 将函数参数中的 "处理函数" handlers与本路由组已有的Handlers组合起来，作为最终要执行的完整handlers列表
+ 	// 将函数参数中的 "处理函数" handlers与本路由组已有的Handlers组合起来，作为最终要执行的完整handlers列表
     handlers = group.combineHandlers(handlers)
- // routerGroup会存有engine对象的引用，调用engine的addRoute将绝对路径与处理函数列表绑定起来
+ 	// routerGroup会存有engine对象的引用，调用engine的addRoute将绝对路径与处理函数列表绑定起来
     group.engine.addRoute(httpMethod, absolutePath, handlers)
     return group.returnObj()
 }
@@ -260,7 +260,7 @@ func (group *RouterGroup) handle(httpMethod, relativePath string, handlers Handl
 
 从源码中 `handlers = group.combineHandlers(handlers)` 可以看出我们也可以给gin设置一些全局通用的handlers，这些handlers会绑定到所有的路由方法上，如下：
 
-```
+```go
 // 设置全局通用handlers，这里是设置了engine的匿名成员RouterGroup的Handlers成员
 mux.Handlers = []gin.HandlerFunc{
     func(c *gin.Context) {
@@ -276,7 +276,7 @@ mux.Handlers = []gin.HandlerFunc{
 
 addRoute函数：
 
-```
+```go
 func (engine *Engine) addRoute(method, path string, handlers HandlersChain) {
     assert1(path[0] == '/', "path must begin with '/'")
     assert1(method != "", "HTTP method can not be empty")
@@ -309,7 +309,7 @@ type methodTrees []methodTree
 
 ##### **2.2.2 路由组的实现**
 
-```
+```go
 // system组
 system := mux.Group("system")
 // system->auth组
@@ -346,7 +346,7 @@ Group函数会返回一个新的RouterGroup对象，每一个RouterGroup都会�
 
 - 基于systemGroup生成的systemAuthGroup，basePath为sysetmGroup的basePath: "/system" 与函数参数中"auth"组成 `join("/system", "auth")`，
 
-  ```
+  ```go
   // Group creates a new router group. You should add all the routes that have common middlewares or the same path prefix. // For example, all the routes that use a common middleware for authorization could be grouped. 
   func (group *RouterGroup) Group(relativePath string, handlers ...HandlerFunc) *RouterGroup {
       return &RouterGroup{
@@ -377,7 +377,7 @@ Group函数会返回一个新的RouterGroup对象，每一个RouterGroup都会�
 
   需要注意的一点是，每个routerGroup都持有全局engine对象，调用Group()生成新RouterGroup后，再调用GET, POST..绑定路由时，依旧会使用全局engine对象的handle方法，最终会走到：
 
-  ```
+  ```go
   group.engine.addRoute(httpMethod, absolutePath, handlers)
   ```
 
@@ -387,7 +387,7 @@ Group函数会返回一个新的RouterGroup对象，每一个RouterGroup都会�
 
 ##### **2.3.1 Engine.Run函数**
 
-```
+```go
 // Run attaches the router to a http.Server and starts listening and serving HTTP requests. // It is a shortcut for http.ListenAndServe(addr, router) // Note: this method will block the calling goroutine indefinitely unless an error happens. 
 func (engine *Engine) Run(addr ...string) (err error) {
  ...
@@ -402,7 +402,7 @@ func (engine *Engine) Run(addr ...string) (err error) {
 
 ##### **2.3.2 net/http的ListenAndServe函数**
 
-```
+```go
 // ListenAndServe listens on the TCP network address addr and then calls
 // Serve with handler to handle requests on incoming connections.
 // Accepted connections are configured to enable TCP keep-alives.
@@ -446,7 +446,7 @@ ListenAndServe函数实例化Sever，调用其`ListenAndServe`函数实现监听
 
 net/http的Server结构体类型中有一个Handler接口类型的Handler。
 
-```
+```go
 // A Server defines parameters for running an HTTP server.
 // The zero value for Server is a valid configuration.
 type Server struct {
@@ -471,7 +471,7 @@ type Handler interface {
 
 `Server.Serve`函数用于监听、接受和处理网络请求，代码如下：
 
-```
+```go
 // Serve accepts incoming connections on the Listener l, creating a
 // new service goroutine for each. The service goroutines read requests and
 // then call srv.Handler to reply to them.
@@ -529,7 +529,7 @@ func (srv *Server) Serve(l net.Listener) error {
 
 ##### **2.3.5 conn.serve函数**
 
-```
+```go
 func (c *conn) serve(ctx context.Context) {
     c.remoteAddr = c.rwc.RemoteAddr().String()
     ctx = context.WithValue(ctx, LocalAddrContextKey, c.rwc.LocalAddr()) 
@@ -558,7 +558,7 @@ func (c *conn) serve(ctx context.Context) {
 
 一个连接建立之后，该连接中所有的请求都将在这个协程中进行处理，直到连接被关闭。在 for 循环里面会循环调用 readRequest 读取请求进行处理。可以在第16行看到请求处理是通过调用 serverHandler结构体的ServeHTTP函数 进行的。
 
-```
+```go
 // serverHandler delegates to either the server's Handler or
 // DefaultServeMux and also handles "OPTIONS *" requests.
 type serverHandler struct {
@@ -580,7 +580,7 @@ func (sh serverHandler) ServeHTTP(rw ResponseWriter, req *Request) {
 
 可以看到上面第八行 `handler := sh.srv.Handler`，在gin框架中，sh.srv.Handler其实就是engine.Handler()。
 
-```
+```go
 func (engine *Engine) Handler() http.Handler {
     if !engine.UseH2C {
        return engine
@@ -597,7 +597,7 @@ engine.Handler()函数使用了http2 server的能力，实际的逻辑处理还�
 
 gin在gin.go中实现了`ServeHTTP`函数，代码如下：
 
-```
+```go
 // ServeHTTP conforms to the http.Handler interface.
 func (engine *Engine) ServeHTTP(w http.ResponseWriter, req *http.Request) {
  c := engine.pool.Get().(*Context)
@@ -623,7 +623,7 @@ gin中对每个连接都需要的上下文对象进行缓存化存取，通过�
 
 `handleHTTPRequest`函数封装了对请求进行处理的具体过程，位于gin/gin.go中，代码如下:
 
-```
+```go
 func (engine *Engine) handleHTTPRequest(c *Context) {
  httpMethod := c.Request.Method
  rPath := c.Request.URL.Path
@@ -704,7 +704,7 @@ gin的路由树源码上面没有展开，实际上就是实现了radix tree的�
 
 实际看下demo中的代码会生成的radix tree：
 
-```
+```go
 mux.GET("/ping", func(c *gin.Context) {
     c.String(http.StatusOK, "ping")
 })
@@ -736,7 +736,7 @@ mux.GET("/about", func(c *gin.Context) {
 
 4. 有时候我们可能会希望，某些条件触发时直接返回，不再继续后续的处理操作。Context提供了`Abort`方法帮助我们实现这样的目的。原理是将 Context.index 调整到一个比较大的数字，gin中要求一个路由的全部处理器个数不超过63，每次执行一个处理器时，会先判断index是否超过了这个限制，如果超过了就不会执行。
 
-   ```
+   ```go
    // Next should be used only inside middleware. // It executes the pending handlers in the chain inside the calling handler. // See example in GitHub. 
    func (c *Context) Next() {
        c.index++
