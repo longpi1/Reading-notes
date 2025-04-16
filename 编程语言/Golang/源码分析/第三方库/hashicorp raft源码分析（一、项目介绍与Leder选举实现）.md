@@ -1,10 +1,14 @@
-## hashicorp raft源码分析
+## hashicorp raft源码分析（一、项目介绍与Leder选举实现）
 
+> 本文基于 hashicorp/raft `v1.7.3` 版本进行源码分析
+>
 > API手册：https://pkg.go.dev/github.com/hashicorp/raft
 >
 > 源码地址：[hashicorp/raft](https://github.com/hashicorp/raft)
 >
-> raft论文解读：https://github.com/maemual/raft-zh_cn/blob/master/raft-zh_cn.md
+> raft论文中文解读：https://github.com/maemual/raft-zh_cn/blob/master/raft-zh_cn.md
+>
+> 在阅读文章前需要有一定的 raft 基础, 不然直接看源码会一头雾水.
 
 ## 一、项目背景：什么是 Raft？
 
@@ -32,7 +36,7 @@ Hashicorp 的 Raft 是 Raft 论文（[In Search of an Understandable Consensus A
 ## 二、项目结构
 
 ```go
-github.com/hashicorp/raft/
+github.com/hashicorp/raft/ 相关核心目录与代码
 ├── fuzzy    // 用来模拟测试 启动一个集群， 启动多个raftNode 节点。
 ├── bench    // 包含基准测试，用于评估 Raft 的性能。
 ├── raft.go         // 【核心文件】Raft 状态机、主逻辑（选举、日志复制核心循环）
@@ -92,9 +96,9 @@ github.com/hashicorp/raft/
 
 
 
-## 三、功能实现
+## 三、Leader选举
 
-### 1.Leader 选举（Leader Election）
+
 
 在raft算法中，典型的领导者选举在本质上是节点状态的变更。具体到raft源码中，领导者选举的入口函数就是`run()`，在raft.go中以一个单独的协程运行，来实现节点状态的变更
 
@@ -396,8 +400,6 @@ func (r *Raft) runCandidate() {
 
 #### 1.3当节点当选为候选人之后，函数`runLeader()`执行，大致的执行步骤如下：
 
-
-        
 ```go
 // runLeader 运行 Raft 节点处于 Leader（领导者）状态时的主逻辑。
 // 它首先进行 Leader 状态的初始化设置，然后进入 leaderLoop 热循环，持续处理集群管理工作。
@@ -494,78 +496,9 @@ func (r *Raft) leaderLoop() {
 
 		// 4.3 处理领导权转移（Leadership Transfer）请求：手动切换 Leader
 		case future := <-r.leadershipTransferCh:
-			r.mainThreadSaturation.working()
         // .....忽略非核心代码......
 
-			// 创建退出信号通道：当离开 leaderLoop 时，取消转移操作
-			leftLeaderLoop := make(chan struct{})
-			defer func() { close(leftLeaderLoop) }()
 
-			// 停止信号通道（stopCh）：超时或完成时关闭
-			// 完成信号通道（doneCh）：异步返回转移结果
-			stopCh := make(chan struct{})
-			doneCh := make(chan error, 1)
-
-			// 启动后台协程：监控领导权转移的超时和完成情况
-			go func() {
-				defer r.setLeadershipTransferInProgress(false) // 确保完成后重置标志
-				select {
-				case <-time.After(r.config().ElectionTimeout): // 转移超时（ElectionTimeout）
-					close(stopCh) // 通知转移协程退出
-					err := fmt.Errorf("leadership transfer timeout")
-					r.logger.Debug(err.Error())
-					future.respond(err) // 返回超时错误
-					<-doneCh            // 等待转移协程退出
-				case <-leftLeaderLoop: // leaderLoop 退出（Leader 降级）
-					close(stopCh)
-					err := fmt.Errorf("lost leadership during transfer (expected)")
-					r.logger.Debug(err.Error())
-					future.respond(nil) // 忽略错误，Leader 已下台
-					<-doneCh
-				case err := <-doneCh: // 收到转移结果
-					if err != nil {
-						r.logger.Debug(err.Error())
-						future.respond(err) // 返回错误
-					} else {
-						// 转移成功，但等待最多 ElectionTimeout 确认新 Leader 生效
-						select {
-						case <-time.After(r.config().ElectionTimeout):
-							err := fmt.Errorf("leadership transfer timeout")
-							r.logger.Debug(err.Error())
-							future.respond(err)
-						case <-leftLeaderLoop:
-							r.logger.Debug("lost leadership during transfer (expected)")
-							future.respond(nil)
-						}
-					}
-				}
-			}()
-
-			// 获取目标节点信息（ID 和 Address）
-			id := future.ID
-			address := future.Address
-			if id == nil { // 如果未指定目标节点，自动选择一个合适的 Follower
-				s := r.pickServer()
-				if s != nil {
-					id = &s.ID
-					address = &s.Address
-				} else {
-					doneCh <- fmt.Errorf("cannot find peer")
-					continue
-				}
-			}
-
-			// 获取目标节点的复制状态（replState）
-			state, ok := r.leaderState.replState[*id]
-			if !ok {
-				doneCh <- fmt.Errorf("cannot find replication state for %v", id)
-				continue
-			}
-
-			// 标记领导权转移进行中，防止并行操作
-			r.setLeadershipTransferInProgress(true)
-			// 启动异步领导权转移逻辑（发送 TimeoutNow RPC 触发新 Leader 选举）
-			go r.leadershipTransfer(*id, *address, state, stopCh, doneCh)
 
 		// 4.4 处理日志提交事件（commitCh）：有新日志被多数派确认
 		case <-r.leaderState.commitCh:
@@ -678,9 +611,25 @@ func (r *Raft) leaderLoop() {
 
 ### 2.日志复制（Log Replication）
 
-processRPC
+### leader 复制日志
 
+![img](https://img2022.cnblogs.com/blog/2794988/202205/2794988-20220522153708740-687414905.png)
 
+1. 在`runLeader()`函数中，调用`startStopReplication()`函数，执行日志复制功能
+2. 启动一个新协程，调用`replicate()`函数，执行日志复制相关的功能
+3. 在`replicate()`函数中，调用`replicateTo()`函数，执行步骤4，如果开启了流水线复制模式，执行步骤5
+4. 在`replicateTo()`函数中，进行日志复制和日志一致性检测，如果日志复制成功，则设置`s.allowPipeline = true`，开启流水线复制模式
+5. 调用`pipelineReplicate()`函数，采用更搞笑的流水线方式进行日志复制
+
+1. 目标是在环境正常的情况下，提升日志复制性能，如果在日志复制过程中出错了，就进入 RPC 复制模式，继续调用 replicateTo() 函数，进行日志复制。
+
+### follower 接收日志
+
+![img](https://img2022.cnblogs.com/blog/2794988/202205/2794988-20220522155156888-154465698.png)
+
+1. 在`runFollower()`函数中，调用`processRPC()`函数，处理接收到的RPC消息
+2. 在`processRPC()`函数中，调用`appendEntries()`函数，处理接收到的日志复制RPC请求
+3. `appendEntries()`函数，是跟随者处理日志的核心函数。在步骤3.1中，比较日志一致性；在步骤3.2中，将新日志项存放到本地；在步骤3.3中，根据领导者最新提交的日志项索引值，来计算当前需要被应用的日志项，并应用到本地状态机
 
 
 
@@ -731,5 +680,9 @@ processRPC
 
 ## 五、参考链接
 
+1.[Hashicorp Raft实现和API分析](https://www.cnblogs.com/aganippe/p/16292050.html)
 
+2.[hashicorp raft源码学习](https://qiankunli.github.io/2020/05/17/hashicorp_raft.html)
+
+3.[源码分析 hashicorp raft replication 日志复制的实现原理](https://github.com/rfyiamcool/notes/blob/main/hashicorp_raft_replication_code.md#%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90-hashicorp-raft-replication-%E6%97%A5%E5%BF%97%E5%A4%8D%E5%88%B6%E7%9A%84%E5%AE%9E%E7%8E%B0%E5%8E%9F%E7%90%86)
 
