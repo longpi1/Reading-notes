@@ -1,5 +1,17 @@
 # hashicorp raft源码分析（二、日志复制与安全性实现）
 
+> 本文基于 hashicorp/raft `v1.7.3` 版本进行源码分析
+>
+> API手册：https://pkg.go.dev/github.com/hashicorp/raft
+>
+> 源码地址：[hashicorp/raft](https://github.com/hashicorp/raft)
+>
+> raft论文中文解读：https://github.com/maemual/raft-zh_cn/blob/master/raft-zh_cn.md
+>
+> 在阅读文章前需要有一定的 raft 基础, 不然直接看源码会一头雾水.
+>
+> 上一篇文章：[hashicorp raft源码分析（一、项目介绍与Leder选举实现）](https://github.com/longpi1/Reading-notes/blob/main/%E7%BC%96%E7%A8%8B%E8%AF%AD%E8%A8%80/Golang/%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90/%E7%AC%AC%E4%B8%89%E6%96%B9%E5%BA%93/hashicorp%20raft%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90%EF%BC%88%E4%B8%80%E3%80%81%E9%A1%B9%E7%9B%AE%E4%BB%8B%E7%BB%8D%E4%B8%8ELeder%E9%80%89%E4%B8%BE%E5%AE%9E%E7%8E%B0%EF%BC%89.md)
+
 ## 一、日志复制（Log Replication）
 
 ### leader 复制日志

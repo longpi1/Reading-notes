@@ -126,7 +126,59 @@ func (r *Raft) run() {
 }
 ```
 
-#### 1.1首先，在初始状态下，集群中所有的节点都处于跟随者状态，函数`runFollower()`运行，大致的执行步骤为：
+### 1.1首先，在初始状态下，集群中所有的节点都处于跟随者状态，函数`runFollower()`运行
+
+#### 主要处理逻辑：
+
+- **接收 RPC 请求 (`<-r.rpcCh`):** 这是 Follower 接收外部通信的主要方式。当收到 RPC 时，将其交给 `r.processRPC` 方法处理。Follower 主要处理以下几种 RPC：
+
+  - `AppendEntriesRequest`: 接收 Leader 发来的日志条目同步请求或心跳信号。
+  - `RequestVoteRequest`: 接收 Candidate 发来的投票请求。
+  - `RequestPreVoteRequest`: 接收 Candidate 发来的预投票请求（如果启用了 Pre-Vote 优化）。
+  - `InstallSnapshotRequest`: 接收 Leader 发来的快照传输请求。
+  - `TimeoutNowRequest`: 接收强制立即超时的请求。
+
+- **接收配置变更请求 (`<-r.configurationChangeCh`):** Follower 节点不能发起配置变更。因此，收到此类请求时，直接回复 `ErrNotLeader` 错误。
+
+- **接收日志应用请求 (`<-r.applyCh`):** Follower 节点不能直接处理外部的日志应用请求。日志的应用是由 Leader 驱动的 `commitIndex` 前进后，由 Raft 内部机制完成的。因此，收到此类请求时，也直接回复 `ErrNotLeader` 错误。
+
+- **心跳定时器超时 (`<-heartbeatTimer`):** 这是 Follower 检测 Leader 是否存活的关键机制。
+
+  - 定时器超时后，首先**重新启动**一个新的随机化心跳定时器。
+
+  - 然后，检查距离**最后一次与 Leader 成功通信**的时间 (`r.LastContact()`) 是否超过了心跳超时时间。
+
+  - **如果最近与 Leader 有过联系 (时间差小于超时时间):** 说明 Leader 仍然活跃，这只是一个正常的定时器事件，Follower 继续保持 Follower 状态，循环继续。
+
+  - 如果最近与 Leader **没有**联系 (时间差大于等于超时时间):
+
+     
+
+    说明 Leader 可能已经失效或网络有问题，Follower 认为 Leader 失联。
+
+    - 清空当前已知的 Leader 信息。
+
+    - 进行选举资格检查:
+
+       
+
+      在转换为 Candidate 发起选举之前，Follower 会检查自己是否有资格参与选举：
+
+      - 检查是否有已知的配置 (`r.configurations.latestIndex == 0`)。如果没有，无法选举，记录警告并继续等待。
+      - 检查当前节点是否在**稳定**的配置中拥有**投票权** (`!hasVote(r.configurations.latest, r.localID)`)。如果配置已稳定 (`latestIndex == committedIndex`) 但自己没有投票权，则不能发起选举，记录警告并继续等待。
+
+    - 如果通过选举资格检查 (有已知配置且自己有投票权):
+
+      - 记录警告日志，表明心跳超时并即将开始选举。
+      - 更新状态指标。
+      - **将节点状态设置为 Candidate** (`r.setState(Candidate)`)。
+      - **退出 `runFollower` 函数** (`return`)。这将导致外部调用者（通常是 Raft 的主协程）检测到状态变化，并调用处理 Candidate 状态的函数 (`runCandidate`)，开始新的选举流程。
+
+- **接收关闭信号 (`<-r.shutdownCh`):** 当 Raft 节点被要求关闭时，收到此信号，函数直接返回，结束主循环和 Follower 状态的运行。
+
+  
+
+#### 相关源码：
 
 ```go
 // runFollower 在 Follower 状态下运行主循环。
@@ -146,9 +198,8 @@ func (r *Raft) runFollower() {
        // 使用 select 语句监听多个 channel
        select {
        case rpc := <-r.rpcCh:
-          // 收到 RPC 请求
           r.mainThreadSaturation.working() // 表示主线程开始工作
-          r.processRPC(rpc)                // 处理 RPC 请求
+          r.processRPC(rpc)                // 处理 rpc 请求, 这里有投票、传输日志、传递快照的 RPC 请求
 
        case c := <-r.configurationChangeCh:
           r.mainThreadSaturation.working()
@@ -242,7 +293,47 @@ func hasVote(configuration Configuration, id ServerID) bool {
 }
 ```
 
-#### 1.2当节点推举自己为候选人之后，执行`runCandidate()`函数
+##### processRPC 处理请求逻辑
+
+```go
+func (r *Raft) processRPC(rpc RPC) {
+	// 检查RPC请求的头部信息，如果检查失败，则返回错误响应。
+	if err := r.checkRPCHeader(rpc); err != nil {
+		// 向RPC请求发送者返回错误响应。
+		rpc.Respond(nil, err)
+		return
+	}
+
+	// 根据RPC请求中的命令类型进行不同的处理。
+	switch cmd := rpc.Command.(type) {
+	// 处理追加日志条目请求。
+	case *AppendEntriesRequest:
+		r.appendEntries(rpc, cmd)
+	// 处理请求投票请求。
+	case *RequestVoteRequest:
+		r.requestVote(rpc, cmd)
+	// 处理请求预投票请求（预投票用于在节点成为候选人之前检查是否能获得多数投票）。
+	case *RequestPreVoteRequest:
+		r.requestPreVote(rpc, cmd)
+	// 处理安装快照请求（用于将快照数据传输到其他节点）。
+	case *InstallSnapshotRequest:
+		r.installSnapshot(rpc, cmd)
+	// 处理立即超时请求（用于触发节点的超时操作）。
+	case *TimeoutNowRequest:
+		r.timeoutNow(rpc, cmd)
+	// 如果收到未知的命令类型，则记录错误日志并返回错误响应。
+	default:
+		r.logger.Error("got unexpected command",
+			"command", hclog.Fmt("%#v", rpc.Command))
+
+		rpc.Respond(nil, fmt.Errorf(rpcUnexpectedCommandError))
+	}
+}
+```
+
+
+
+### 1.2当节点推举自己为候选人之后，执行`runCandidate()`函数
 
 ```go
 // 在 Raft 算法中，当 Follower 心跳超时且满足选举条件时，会进入 Candidate 状态，尝试成为 Leader。
@@ -398,7 +489,7 @@ func (r *Raft) runCandidate() {
 
 
 
-#### 1.3当节点当选为候选人之后，函数`runLeader()`执行，大致的执行步骤如下：
+### 1.3当节点当选为候选人之后，函数`runLeader()`执行，大致的执行步骤如下：
 
 ```go
 // runLeader 运行 Raft 节点处于 Leader（领导者）状态时的主逻辑。
@@ -603,39 +694,6 @@ func (r *Raft) leaderLoop() {
 }
 
 ```
-
-
-
-
-
-
-### 2.日志复制（Log Replication）
-
-### leader 复制日志
-
-![img](https://img2022.cnblogs.com/blog/2794988/202205/2794988-20220522153708740-687414905.png)
-
-1. 在`runLeader()`函数中，调用`startStopReplication()`函数，执行日志复制功能
-2. 启动一个新协程，调用`replicate()`函数，执行日志复制相关的功能
-3. 在`replicate()`函数中，调用`replicateTo()`函数，执行步骤4，如果开启了流水线复制模式，执行步骤5
-4. 在`replicateTo()`函数中，进行日志复制和日志一致性检测，如果日志复制成功，则设置`s.allowPipeline = true`，开启流水线复制模式
-5. 调用`pipelineReplicate()`函数，采用更搞笑的流水线方式进行日志复制
-
-1. 目标是在环境正常的情况下，提升日志复制性能，如果在日志复制过程中出错了，就进入 RPC 复制模式，继续调用 replicateTo() 函数，进行日志复制。
-
-### follower 接收日志
-
-![img](https://img2022.cnblogs.com/blog/2794988/202205/2794988-20220522155156888-154465698.png)
-
-1. 在`runFollower()`函数中，调用`processRPC()`函数，处理接收到的RPC消息
-2. 在`processRPC()`函数中，调用`appendEntries()`函数，处理接收到的日志复制RPC请求
-3. `appendEntries()`函数，是跟随者处理日志的核心函数。在步骤3.1中，比较日志一致性；在步骤3.2中，将新日志项存放到本地；在步骤3.3中，根据领导者最新提交的日志项索引值，来计算当前需要被应用的日志项，并应用到本地状态机
-
-
-
-### 3.安全性（Safety）
-
-
 
 
 
