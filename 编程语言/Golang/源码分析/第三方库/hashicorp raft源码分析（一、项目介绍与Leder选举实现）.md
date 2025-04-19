@@ -98,7 +98,7 @@ github.com/hashicorp/raft/ 相关核心目录与代码
 
 ## 三、Leader选举
 
-
+![img](https://camo.githubusercontent.com/599752e5436aa974a0c5bc75de8702b5fec40b031098a8c2c14c196b0cacfd41/68747470733a2f2f7869616f7275692d63632e6f73732d636e2d68616e677a686f752e616c6979756e63732e636f6d2f696d616765732f3230323330322f3230323330323136323232333830312e706e67)
 
 在raft算法中，典型的领导者选举在本质上是节点状态的变更。具体到raft源码中，领导者选举的入口函数就是`run()`，在raft.go中以一个单独的协程运行，来实现节点状态的变更
 
@@ -126,7 +126,7 @@ func (r *Raft) run() {
 }
 ```
 
-### 1.1首先，在初始状态下，集群中所有的节点都处于跟随者状态，函数`runFollower()`运行
+### 1.1 follower跟随者运行逻辑
 
 #### 主要处理逻辑：
 
@@ -331,9 +331,430 @@ func (r *Raft) processRPC(rpc RPC) {
 }
 ```
 
+hashicorp raft server/client 是使用 msgpack on tcp 实现的 rpc 服务, 关于 hashcrop raft transport server/client 的实现原理没什么可深入的, 请直接看代码实现. msgpack rpc 的协议报文格式如下.
+
+[![img](https://camo.githubusercontent.com/80b72338e79667fbac7153d5243207cec88836c6ca85020c3dbdd30e254b403e/68747470733a2f2f7869616f7275692d63632e6f73732d636e2d68616e677a686f752e616c6979756e63732e636f6d2f696d616765732f3230323330322f53616d706c65253230466c6f77636861727425323054656d706c6174652532302d322d2e6a7067)](https://camo.githubusercontent.com/80b72338e79667fbac7153d5243207cec88836c6ca85020c3dbdd30e254b403e/68747470733a2f2f7869616f7275692d63632e6f73732d636e2d68616e677a686f752e616c6979756e63732e636f6d2f696d616765732f3230323330322f53616d706c65253230466c6f77636861727425323054656d706c6174652532302d322d2e6a7067)
+
+##### appendEntries 同步日志
+
+`appendEntries` 函数是 Raft 协议中 Follower 节点处理 Leader 发来的 `AppendEntriesRequest` 的核心方法。它的主要职责是根据 Leader 的请求更新 Follower 的状态、日志和提交索引。
+
+**核心流程:**
+
+1. **初始化响应:** 创建一个 `AppendEntriesResponse` 并设置默认值（通常是失败），包含当前节点的 Term 和最后一个日志索引。使用 `defer` 确保函数退出时发送响应。
+2. Term 检查:
+   - 如果 Leader 的 Term 小于当前节点的 Term，则拒绝请求并返回（Follower 的 Term 在响应中）。
+   - 如果 Leader 的 Term 大于当前节点的 Term，或者当前节点不是 Follower (且不是领导权转移中的 Candidate)，则更新当前节点的 Term 为 Leader 的 Term，并转换为 Follower 状态。
+3. 记录 Leader 信息: 保存 Leader 的地址和 ID。
+4. 日志一致性检查:
+   - 如果请求包含 `PrevLogEntry` (> 0)，则获取当前节点日志中相同索引条目的 Term。
+   - 将获取到的 Term 与 Leader 请求中的 `PrevLogTerm` 进行比较。
+   - 如果不匹配，说明日志发生分歧，拒绝请求，设置 `NoRetryBackoff` 为 true，并返回。
+   - 如果无法获取到 `PrevLogEntry` 索引处的日志（例如索引越界或存储错误），也拒绝请求，设置 `NoRetryBackoff` 为 true，并返回。
+5. 处理新日志条目:
+   - 如果请求包含 `Entries`，遍历 Leader 发来的条目。
+   - 查找与当前节点日志发生冲突或 Leader 独有的新条目的起始点。
+   - 如果发现冲突（相同索引但 Term 不同），删除当前节点从冲突点开始的所有后续日志条目。如果在删除范围内的配置变更日志被移除，则回退最新的配置信息。
+   - 将 Leader 发来的从冲突点或当前节点最后一个日志索引之后开始的条目视为新的，并将其追加到日志存储中。
+   - 处理新追加的日志条目中的配置变更类型。
+   - 更新当前节点的最后一个日志索引和 Term。
+6. 更新提交索引:
+   - 如果 Leader 的 `LeaderCommitIndex` 大于当前节点的 `CommitIndex`，则更新当前节点的 `CommitIndex` 为 `min(LeaderCommitIndex, 当前节点的最后一个日志索引)`。
+   - 如果最新的配置变更日志索引小于等于新的提交索引，则将最新的配置提升为已提交配置。
+   - 将已提交但尚未应用的日志条目应用到状态机， **`processLogs` 应用日志**。
+7. 设置成功并更新最后联系时间: 如果所有检查和操作都成功完成，将响应的 `Success` 字段设置为 true，并更新记录最后一次与 Leader 成功联系的时间（用于重置选举定时器）。
+
+简单说 `appendEntries()` 同步日志是 leader 和 follower 不断调整位置再同步数据的过程.
+
+```GO
+// appendEntries 在收到AppendEntries RPC调用时被触发。
+// 这个函数必须只在Raft的主线程（事件循环）中调用，以避免并发问题。
+func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
+	// 使用 metrics 记录 appendEntries RPC 处理的时间。
+	defer metrics.MeasureSince([]string{"raft", "rpc", "appendEntries"}, time.Now())
+
+	// 初始化 AppendEntries 响应结构体。
+	// 默认设置为失败，并包含当前节点的Term和最后一个日志条目的索引。
+	resp := &AppendEntriesResponse{
+		RPCHeader:      r.getRPCHeader(),   // 获取标准的RPC头部信息
+		Term:           r.getCurrentTerm(), // 响应中包含当前节点的Term
+		LastLog:        r.getLastIndex(),   // 响应中包含当前节点的最后一个日志索引
+		Success:        false,              // 初始设置为失败
+		NoRetryBackoff: false,              // 初始设置为允许重试退避
+	}
+	var rpcErr error // 用于存储处理过程中可能发生的错误
+
+	// 使用 defer 确保在函数退出前发送响应。
+	defer func() {
+		rpc.Respond(resp, rpcErr)
+	}()
+
+	// 规则 1: 如果请求的Term小于当前节点的Term，则忽略该请求。
+	// Leader的Term比Follower旧，说明该Leader已失效。
+	if a.Term < r.getCurrentTerm() {
+		return // 直接返回，不处理旧Term的AppendEntries
+	}
+
+	// 规则 2: 如果请求的Term大于当前节点的Term，或者当前节点不是Follower且不是正在进行领导权转移的Candidate，则更新Term，并转换为Follower状态。
+	// 这是Raft的核心规则：看到更高的Term总是意味着过时，必须回退到Follower状态。
+	if a.Term > r.getCurrentTerm() || (r.getState() != Follower && !r.candidateFromLeadershipTransfer.Load()) {
+		r.setState(Follower)
+		r.setCurrentTerm(a.Term)
+		resp.Term = a.Term // 更新响应中的Term为新的当前Term
+	}
+
+	// 记录Leader的地址和ID。
+	if len(a.Addr) > 0 {
+		r.setLeader(r.trans.DecodePeer(a.Addr), ServerID(a.ID))
+	} else {
+		r.setLeader(r.trans.DecodePeer(a.Leader), ServerID(a.ID))
+	}
+
+	// 规则 3: 验证前一个日志条目的匹配性（Log Consistency Check）。
+	// Leader在AppendEntries请求中包含新条目紧前一个条目的索引(PrevLogEntry)和Term(PrevLogTerm)。
+	// Follower必须检查自己日志中对应索引的条目Term是否与Leader一致。
+	if a.PrevLogEntry > 0 { // PrevLogEntry == 0 表示这是第一个日志条目，不需要检查前一个
+		lastIdx, lastTerm := r.getLastEntry() // 获取当前节点的最后一个日志条目索引和Term
+
+		var prevLogTerm uint64 // 用于存储当前节点 PrevLogEntry 索引处的日志条目的Term
+		if a.PrevLogEntry == lastIdx {
+			// 如果 Leader 的 PrevLogEntry 恰好是当前节点的最后一个日志条目
+			prevLogTerm = lastTerm // 直接使用最后一个日志条目的Term
+		} else {
+			// 如果 Leader 的 PrevLogEntry 不是当前节点的最后一个日志条目，需要从日志存储中获取
+			var prevLog Log
+			// 尝试获取 PrevLogEntry 索引处的日志条目
+			if err := r.logs.GetLog(a.PrevLogEntry, &prevLog); err != nil {
+				// 获取日志失败（例如：索引不存在、存储错误）
+				r.logger.Warn("failed to get previous log",
+					"previous-index", a.PrevLogEntry, // 记录 Leader 请求的前一个索引
+					"last-index", lastIdx, // 记录当前节点的最后一个索引
+					"error", err) // 记录错误信息
+				// 这种情况下，Leader应该回退并发送更早的日志，所以设置 NoRetryBackoff = true
+				resp.NoRetryBackoff = true
+				return
+			}
+			prevLogTerm = prevLog.Term // 获取到日志条目，记录其Term
+		}
+
+		// 对比 Leader 的 PrevLogTerm 和当前节点 PrevLogEntry 索引处的日志条目的Term
+		if a.PrevLogTerm != prevLogTerm {
+			// Term 不匹配，说明日志在 PrevLogEntry 处发生了分歧。
+			r.logger.Warn("previous log term mis-match",
+				"ours", prevLogTerm, // 记录当前节点的Term
+				"remote", a.PrevLogTerm) // 记录 Leader 发送的Term
+			// Term 不匹配时，Leader 需要回退并发送更早的日志，所以设置 NoRetryBackoff = true
+			resp.NoRetryBackoff = true
+			return
+		}
+	}
+
+	// 规则 4: 处理新的日志条目。
+	// 如果请求中包含新的日志条目 (a.Entries)
+	if len(a.Entries) > 0 {
+		start := time.Now() // 记录开始处理日志条目的时间
+
+		// 删除任何冲突的条目，并跳过任何重复的条目。
+		lastLogIdx, _ := r.getLastLog() // 获取当前节点的最后一个日志索引 (可能与 getLastEntry 不同，取决于实现细节，这里用于比较)
+		var newEntries []*Log           // 用于存放真正需要追加的新条目
+
+		// 遍历 Leader 发送的日志条目
+		for i, entry := range a.Entries {
+			// 如果当前 Leader 条目的索引大于当前节点的最后一个日志索引，
+			// 说明从这里开始的所有条目都是 Leader 新增的，可以直接追加。
+			if entry.Index > lastLogIdx {
+				newEntries = a.Entries[i:] // 将剩余的条目标记为需要追加的新条目
+				break                      // 跳出循环，后续只处理 newEntries
+			}
+
+			// 如果 Leader 条目的索引不大于当前节点的最后一个日志索引，
+			// 说明当前节点可能已经有了这个索引的条目，需要检查是否冲突。
+			var storeEntry Log
+			// 尝试从存储中获取当前索引的日志条目
+			if err := r.logs.GetLog(entry.Index, &storeEntry); err != nil {
+				// 获取日志失败 (这不应该发生，如果索引 <= lastLogIdx 但获取失败，可能是存储问题或其他错误)
+				r.logger.Warn("failed to get log entry",
+					"index", entry.Index, // 记录尝试获取的索引
+					"error", err) // 记录错误信息
+				return
+			}
+
+			// 对比 Leader 条目的Term和当前节点对应索引条目的Term
+			if entry.Term != storeEntry.Term {
+				// 如果Term不匹配，说明从当前索引开始，日志发生了分歧。
+				// 规则：删除当前节点从该索引开始的所有后续条目。
+				r.logger.Warn("clearing log suffix", "from", entry.Index, "to", lastLogIdx)
+				// 删除从冲突索引到最后一个索引的日志范围
+				if err := r.logs.DeleteRange(entry.Index, lastLogIdx); err != nil {
+					// 删除日志失败
+					r.logger.Error("failed to clear log suffix", "error", err)
+					return
+				}
+				// 如果被删除的范围包含最新的配置变更日志条目，需要回退最新的配置信息
+				if entry.Index <= r.configurations.latestIndex {
+					// 将最新的配置设置为已提交的配置，索引也回退到已提交的索引
+					r.setLatestConfiguration(r.configurations.committed, r.configurations.committedIndex)
+				}
+				// 从当前冲突的条目开始，Leader 的所有条目都视为新的，需要追加。
+				newEntries = a.Entries[i:]
+				break // 跳出循环，后续只处理 newEntries
+			}
+			// 如果索引小于等于 lastLogIdx 且 Term 匹配，说明这个条目是重复的，已经被 Follower 拥有且一致。
+			// 继续循环检查下一个 Leader 条目。
+		}
+
+		// 如果有需要追加的新条目 (newEntries 列表不为空)
+		if n := len(newEntries); n > 0 {
+			// 将新条目追加到日志存储中。
+			if err := r.logs.StoreLogs(newEntries); err != nil {
+				r.logger.Error("failed to append to logs", "error", err)
+				// TODO: 如果上面发生了日志截断，而这里追加失败，r.getLastLog() 可能会处于错误的状态。
+				return
+			}
+
+			// 处理任何新的配置变更日志条目。 需要在日志条目追加到存储后处理配置变更。
+			for _, newEntry := range newEntries {
+				// 对于每个新追加的条目，检查它是否是配置变更条目，并进行处理。
+				if err := r.processConfigurationLogEntry(newEntry); err != nil {
+					r.logger.Warn("failed to append entry",
+						"index", newEntry.Index, // 记录处理失败的条目索引
+						"error", err) // 记录错误信息
+					rpcErr = err // 记录RPC错误
+					return
+				}
+			}
+
+			// 更新当前节点的最后一个日志索引和Term，基于实际追加的最后一个条目。
+			last := newEntries[n-1]             // 获取追加的最后一个条目
+			r.setLastLog(last.Index, last.Term) // 更新节点的 lastLog 状态
+		}
+
+		// 记录存储日志条目所花费的时间。
+		metrics.MeasureSince([]string{"raft", "rpc", "appendEntries", "storeLogs"}, start)
+	}
+
+	// 规则 5: 更新当前节点的提交索引 (Commit Index)。
+	// Leader 在 AppendEntries 请求中包含自己的提交索引 (LeaderCommitIndex)。
+	// Follower 必须将自己的提交索引更新为 min(Leader 的提交索引, 自己最后一个日志条目的索引)。
+	if a.LeaderCommitIndex > 0 && a.LeaderCommitIndex > r.getCommitIndex() {
+		start := time.Now() // 记录开始处理提交的时间
+		// 计算新的提交索引：取 Leader 的提交索引和当前节点最后一个日志索引的最小值。
+		idx := min(a.LeaderCommitIndex, r.getLastIndex())
+		// 更新当前节点的提交索引。
+		r.setCommitIndex(idx)
+
+		// 如果最新的配置变更日志条目索引小于等于新的提交索引，则表示该配置变更已提交。
+		if r.configurations.latestIndex <= idx {
+			// 将最新的配置设置为已提交的配置，并更新已提交的索引。
+			r.setCommittedConfiguration(r.configurations.latest, r.configurations.latestIndex)
+		}
+
+		// 将已提交的日志条目应用到状态机。
+		// 从旧的提交索引开始（或0）处理到新的提交索引 idx。
+		r.processLogs(idx, nil) // nil 表示应用到默认的状态机 (或这里没有特定的应用函数)
+
+		// 记录处理已提交日志所花费的时间。
+		metrics.MeasureSince([]string{"raft", "rpc", "appendEntries", "processLogs"}, start)
+	}
+
+	// 如果执行到这里没有返回错误或因为旧Term/日志不匹配而提前返回，说明 AppendEntries 成功。
+	resp.Success = true
+	// 记录最后一次与Leader成功通信的时间。这用于重置选举超时定时器。
+	r.setLastContact()
+}
+```
+
+### 
+
+##### 处理 RequestVoteRequest 投票请求
+
+`requestVote` 函数处理来自其他 Raft 节点（候选者）的 RequestVote RPC 请求。其核心逻辑是根据 Raft 协议的选举规则决定是否授予投票。
+
+核心流程：
+
+1. 前置检查：
+
+   - 检查候选者是否在当前配置中（如果提供了 ID）。如果不在且配置不为空，拒绝投票。
+   - 检查当前节点是否已知有其他领导者。如果已知且请求不是领导权转移，拒绝投票。
+
+2. 任期处理：
+
+   - 如果请求的任期小于当前任期，忽略该请求（不授予投票）。
+   - 如果请求的任期大于当前任期，更新当前节点的任期为请求任期，并转变为跟随者状态。更新响应中的任期。
+
+3. **投票者检查：** 检查候选者是否是当前配置中的投票者（如果提供了 ID）。如果不是投票者且配置不为空，拒绝投票。
+
+4. **重复投票检查：** 从持久化存储中获取上次投票的任期和候选者。如果在当前请求的任期内已经投过票，并且上次投票的候选者就是本次请求的候选者，则再次授予投票（处理幂等性）；否则（投给了其他候选者或任期不同），不授予投票。
+
+5. **日志匹配检查**：
+
+   检查候选者的日志是否至少和本地日志一样新。
+
+   - **如果本地日志的最后任期大于候选者的，拒绝投票。**
+   - **如果本地日志的最后任期与候选者的相同，但本地日志的最后索引大于候选者的，拒绝投票。**
+
+6. **授予投票**：
+
+   如果通过了所有前面的检查，表示可以授予投票。
+
+   - **关键步骤：** 在授予投票 *之前*，将本次投票的任期和候选者 ID 持久化到稳定存储中，确保安全性。
+   - 设置响应中的 `Granted` 字段为 true。
+   - 更新本地的最后联系时间。
+
+7. **返回：** 函数结束，延迟函数发送包含投票结果的响应。
+
+总的来说，`requestVote` 函数实现了 Raft 协议中跟随者（或其他状态节点）响应候选者投票请求的核心逻辑，包括任期处理、日志匹配检查、投票持久化以及处理配置变更和领导权转移等特殊情况。
+
+```GO
+// requestVote 是当收到请求投票的 RPC 调用时被调用的函数。
+// 该函数实现了 Raft 协议中处理投票请求的核心逻辑，包括检查候选人资格、更新状态、持久化投票信息等。
+func (r *Raft) requestVote(rpc RPC, req *RequestVoteRequest) {
+	// 使用 defer 记录该函数的执行时间，用于性能监控
+	defer metrics.MeasureSince([]string{"raft", "rpc", "requestVote"}, time.Now())
+	// 观察并记录请求，用于调试或监控
+	r.observe(*req)
+
+	// 初始化投票响应结构体
+	resp := &RequestVoteResponse{
+		RPCHeader: r.getRPCHeader(), // 设置 RPC 头部信息
+		Term:      r.getCurrentTerm(), // 设置当前节点的任期
+		Granted:   false, // 默认不授予投票
+	}
+	var rpcErr error // 用于存储 RPC 调用中的错误
+	// 使用 defer 确保在函数返回时发送响应（无论是否发生错误）
+	defer func() {
+		rpc.Respond(resp, rpcErr)
+	}()
+
+	// 对于协议版本 < 2 的老版本服务器，需要提供 peers 信息，否则会引发 panic。
+	// peers 信息仅用于生成警告信息。
+	if r.protocolVersion < 2 {
+		resp.Peers = encodePeers(r.configurations.latest, r.trans)
+	}
+
+	// 获取候选人的地址和 ID
+	var candidate ServerAddress
+	var candidateBytes []byte
+    
+	// ........忽略非核心代码........
+
+	// 如果候选人的任期小于当前节点的任期，直接忽略请求
+	if req.Term < r.getCurrentTerm() {
+		return
+	}
+
+	// 如果候选人的任期大于当前节点的任期，则更新当前节点的任期，并转为 Follower 状态
+	if req.Term > r.getCurrentTerm() {
+		// 记录日志，说明因收到更高任期的投票请求而失去领导权
+		r.logger.Debug("因收到更高任期的投票请求而失去领导权")
+		r.setState(Follower) // 转为 Follower 状态
+		r.setCurrentTerm(req.Term) // 更新当前任期
+		resp.Term = req.Term // 更新响应中的任期
+	}
+
+	// 如果候选人是非投票节点（non-voter），且请求的任期高于当前任期，
+	// 则当前节点需要退化为 Follower 并更新任期，但拒绝投票请求。
+	// 这是为了在某些场景下（如节点从 voter 转为 non-voter）允许集群继续运行。
+	// 更多细节可参考 https://github.com/hashicorp/raft/pull/526
+	if len(req.ID) > 0 {
+		candidateID := ServerID(req.ID)
+		if len(r.configurations.latest.Servers) > 0 && !hasVote(r.configurations.latest, candidateID) {
+			r.logger.Warn("拒绝投票请求，因为候选人是非投票节点", "from", candidate)
+			return
+		}
+	}
+
+	// 检查当前节点在本任期内是否已经投过票
+	// 从稳定存储中获取上一次投票的任期和候选人信息
+	lastVoteTerm, err := r.stable.GetUint64(keyLastVoteTerm)
+	if err != nil && err.Error() != "not found" {
+		r.logger.Error("获取上一次投票任期失败", "error", err)
+		return
+	}
+	lastVoteCandBytes, err := r.stable.Get(keyLastVoteCand)
+	if err != nil && err.Error() != "not found" {
+		r.logger.Error("获取上一次投票候选人失败", "error", err)
+		return
+	}
+
+	// 如果在本任期内已经投过票，检查是否为同一候选人
+	if lastVoteTerm == req.Term && lastVoteCandBytes != nil {
+		r.logger.Info("收到相同任期的重复投票请求", "term", req.Term)
+		// 如果是同一候选人，则重复授予投票
+		if bytes.Equal(lastVoteCandBytes, candidateBytes) {
+			r.logger.Warn("收到重复的投票请求", "candidate", candidate)
+			resp.Granted = true
+		}
+		return
+	}
+
+	// 检查候选人的日志是否足够新
+	// 如果当前节点的最后日志条目的任期大于候选人的最后日志任期，则拒绝投票
+	lastIdx, lastTerm := r.getLastEntry()
+	if lastTerm > req.LastLogTerm {
+		r.logger.Warn("拒绝投票请求，因为本节点的最后日志任期更大",
+			"candidate", candidate,
+			"last-term", lastTerm,
+			"last-candidate-term", req.LastLogTerm)
+		return
+	}
+
+	// 如果日志任期相同，但当前节点的最后日志索引大于候选人的最后日志索引，则拒绝投票
+	if lastTerm == req.LastLogTerm && lastIdx > req.LastLogIndex {
+		r.logger.Warn("拒绝投票请求，因为本节点的最后日志索引更大",
+			"candidate", candidate,
+			"last-index", lastIdx,
+			"last-candidate-index", req.LastLogIndex)
+		return
+	}
+
+	// 如果所有检查都通过，则持久化投票信息以确保安全性
+	if err := r.persistVote(req.Term, candidateBytes); err != nil {
+		r.logger.Error("持久化投票信息失败", "error", err)
+		return
+	}
+
+	// 授予投票
+	resp.Granted = true
+	// 更新最后一次联系时间（用于检测领导者是否存活）
+	r.setLastContact()
+}
+```
 
 
-### 1.2当节点推举自己为候选人之后，执行`runCandidate()`函数
+
+### 1.2 candidate 候选者运行逻辑
+
+主要流程步骤：
+
+1. **任期更新与初始化：**
+   - 节点将当前任期（Term）加一，进入新的任期进行选举。
+   - 记录日志和更新监控指标，表明进入 Candidate 状态。
+   - 计算赢得选举所需的多数派票数 (`votesNeeded`)。
+2. **选举阶段选择（预投票 vs. 正式投票）：**
+   - 根据配置 (`preVoteDisabled`) 和是否为领导权转移 (`candidateFromLeadershipTransfer`) 决定是先进行 **预投票 (Pre-Vote)** 还是直接进行 **正式投票 (RequestVote)**。
+   - 如果启用预投票且非领导权转移，调用 `preElectSelf()` 发起预投票 RPC，监听 `prevoteCh`。预投票不会改变任期，用于试探是否能获得多数支持。
+   - 否则，调用 `electSelf()` 发起正式投票 RPC，监听 `voteCh`。正式投票会携带新的任期号。
+3. **设置选举超时：**
+   - 设置一个随机化的选举超时定时器 (`electionTimer`)，防止多个 Candidate 同时超时并竞选，减少冲突。
+4. **主循环与事件处理：**
+   - 进入一个循环，持续监听各种事件，直到节点状态不再是 Candidate。
+   - 使用 select语句同时监听：
+     - Incoming RPCs (`r.rpcCh`)： 处理来自其他节点的 RPC 请求（如 AppendEntries、RequestVote 等）。如果收到带有更高任期的 RPC，节点会立即转为 Follower 并更新任期，退出 Candidate 状态。
+     - 预投票结果 (`prevoteCh`)：
+       - 如果收到带有更高任期的预投票响应，转为 Follower 并更新任期，退出 Candidate 状态。
+       - 统计收到的预投票赞成/反对票数。
+       - 如果获得多数派预投票赞成，认为预投票成功，关闭预投票监听**，**发起正式投票 (`electSelf()`)，重置选举定时器，开始等待正式投票结果。
+       - 如果被多数派预投票拒绝，预投票活动失败，继续等待当前的选举超时。
+     - 正式投票结果 (`voteCh`)：
+       - 如果收到带有更高任期的投票响应，转为 Follower 并更新任期，退出 Candidate 状态。
+       - 统计收到的正式投票赞成票数。
+       - 遍历配置中的 server 集合, 过滤出状态为 Voter 的 server, 最后通过 `n/2 + 1` 公式计算出法定投票数, 简单说就是绝大多数的节点数量.**如果获得多数派正式投票赞成**，**赢得选举**，转为 **Leader** 状态，设置自己为 Leader，退出 Candidate 状态。
+     - 配置变更请求 (`r.configurationChangeCh`)： 由于 Candidate 不是 Leader，拒绝此类请求并返回错误。
+     - 选举超时 (`electionTimer`)：如果在超时时间内未能赢得选举（无论是在预投票阶段等待，还是在正式投票阶段等待），则认为本次选举失败，函数 `return`。由于外部调用 `runCandidate` 的逻辑通常在一个无限循环中，这将导致节点在新的任期中**重新开始**竞选过程。
+     - 节点关闭 (`r.shutdownCh`)： 收到关闭信号，退出循环和函数。
+5. **退出处理：**
+   - 无论通过哪种方式退出 `runCandidate` 函数（成为 Follower、成为 Leader、shutdown、选举超时），都会执行 `defer` 中设置的逻辑，将 `candidateFromLeadershipTransfer` 标志重置为 false，防止其影响后续的选举行为。
 
 ```go
 // 在 Raft 算法中，当 Follower 心跳超时且满足选举条件时，会进入 Candidate 状态，尝试成为 Leader。
@@ -363,9 +784,6 @@ func (r *Raft) runCandidate() {
     }
 
     // 3. 确保领导权转移标志（candidateFromLeadershipTransfer）在函数退出时重置
-    // 这个标志如果为 true，会在 RequestVote RPC 中设置 LeadershipTransfer=true，
-    // 使得其他节点即使已有 Leader 也会投票（这是领导权转移的特殊逻辑）。
-    // 必须重置，否则可能被滥用（节点一直伪造领导权转移请求强行拉票）。
     defer func() { r.candidateFromLeadershipTransfer.Store(false) }()
 
     // 4. 设置选举超时时间（ElectionTimeout），随机化防止多个 Candidate 同时发起选举
@@ -393,49 +811,13 @@ func (r *Raft) runCandidate() {
           r.mainThreadSaturation.working() // 标记线程从休眠中醒来，开始工作
           r.processRPC(rpc)                // 处理 RPC 请求（如 AppendEntries、RequestVote 等）
 
-       // 7.2 处理预投票（Pre-Vote）结果
+       // 7.2 处理预投票（Pre-Vote）结果监听 prevoteCh 通道，处理预投票结果。
+       //   如果预投票返回的任期高于当前任期，说明有更新的 Leader，节点退回 Follower 状态并更新任期。
+       //   统计预投票的赞同票和反对票：
+       //   如果赞同票达到多数派（preVoteGrantedVotes >= votesNeeded），预投票成功，进入正式投票阶段（发起 electSelf）。
+       //   如果反对票达到多数派（preVoteRefusedVotes >= votesNeeded），预投票失败，等待选举超时后重试。
        case preVote := <-prevoteCh:
-          r.mainThreadSaturation.working()
-          // 打印调试日志：显示哪个节点给了预投票结果
-          r.logger.Debug("pre-vote received", "from", preVote.voterID, "term", preVote.Term, "tally", preVoteGrantedVotes)
-
-          // 7.2.1 如果预投票返回的任期比我们的大，说明有更新的 Leader 存在，放弃选举，退回 Follower
-          if preVote.Term > term {
-             r.logger.Debug("pre-vote denied: found newer term, falling back to follower", "term", preVote.Term)
-             r.setState(Follower)           // 修改状态为 Follower
-             r.setCurrentTerm(preVote.Term) // 更新本地任期
-             return                         // 退出 Candidate 循环
-          }
-
-          // 7.2.2 统计预投票结果：Granted=true 表示对方愿意投票
-          if preVote.Granted {
-             preVoteGrantedVotes++ // 赞同票数 +1
-             r.logger.Debug("pre-vote granted", "from", preVote.voterID, "term", preVote.Term, "tally", preVoteGrantedVotes)
-          } else {
-             preVoteRefusedVotes++ // 反对票数 +1
-             r.logger.Debug("pre-vote denied", "from", preVote.voterID, "term", preVote.Term, "tally", preVoteGrantedVotes)
-          }
-
-          // 7.2.3 检查预投票是否成功（获得多数派赞同票）
-          if preVoteGrantedVotes >= votesNeeded {
-             // 预投票通过！进入正式选举阶段
-             r.logger.Info("pre-vote successful, starting election", "term", preVote.Term,
-                "tally", preVoteGrantedVotes, "refused", preVoteRefusedVotes, "votesNeeded", votesNeeded)
-             // 重置计数器，启动正式投票计时器
-             preVoteGrantedVotes = 0
-             preVoteRefusedVotes = 0
-             electionTimer = randomTimeout(electionTimeout)
-             // 关闭预投票通道，切换到正式投票逻辑
-             prevoteCh = nil
-             voteCh = r.electSelf() // 发起正式投票（RequestVote RPC）
-          }
-
-          // 7.2.4 如果预投票被拒绝（多数派不同意），等待超时后再重试
-          if preVoteRefusedVotes >= votesNeeded {
-             r.logger.Info("pre-vote campaign failed, waiting for election timeout", "term", preVote.Term,
-                "tally", preVoteGrantedVotes, "refused", preVoteRefusedVotes, "votesNeeded", votesNeeded)
-             // 这里不会立即退出，而是等待 electionTimer 超时后重试
-          }
+        // .....忽略非核心代码......
 
        // 7.3 处理正式投票（RequestVote）结果
        case vote := <-voteCh:
@@ -467,9 +849,7 @@ func (r *Raft) runCandidate() {
        case c := <-r.configurationChangeCh: // 集群配置变更请求
           r.mainThreadSaturation.working()
           c.respond(ErrNotLeader) // 返回错误：当前不是 Leader
-
-           
-        // .....忽略非核心代码......
+          // .....忽略非核心代码......
 
 
        case <-electionTimer:
@@ -489,7 +869,13 @@ func (r *Raft) runCandidate() {
 
 
 
-### 1.3当节点当选为候选人之后，函数`runLeader()`执行，大致的执行步骤如下：
+### 1.3 leader 领导者运行逻辑
+
+`runLeader` 为 leader 领导者的核心处理方法. 进入该函数说明当前节点为 leader.
+
+1. `startStopReplication` 启动各个 follower 的 replication, 开启心跳 heartbeat 和同步 replicate 协程.
+2. 构建一个 LogNoop 空日志, 然后通过 `dispatchLogs` 方法发给所有的 follower 副本. 这里的空日志用来向 follower 通知确认 leader, 并获取各 follower 的一些日志元信息.
+3. `leaderLoop` 为 leader 的主调度循环.
 
 ```go
 // runLeader 运行 Raft 节点处于 Leader（领导者）状态时的主逻辑。
@@ -537,15 +923,11 @@ func (r *Raft) runLeader() {
         // .....忽略非核心代码......
     }()
 
-    // 9. 启动日志复制机制：为每个 Follower 创建复制协程（replication routine）
+    // 9. 启动日志复制机制：启动各个 follower 的 replication, 开启心跳 heartbeat 和同步 replicate 协程.
     // 这些协程会定期向 Follower 发送 AppendEntries RPC，保持日志同步
     r.startStopReplication()
 
-    // 10. 立即追加一条空日志（Noop Log）到 Raft 日志流中
-    // 作用：
-    //   1. 快速推进 commitIndex，即使没有客户端请求
-    //   2. 避免未提交的配置日志（Config Log）无限制增长（历史 Bug 修复）
-    // 以前这里会追加配置日志，但现在限制：最多只能有一个未提交的配置日志
+    // 10. 构建一个 LogNoop 空日志, 然后通过 dispatchLogs 方法发给所有的 follower 副本. 这里的空日志用来向 follower 通知确认 leader, 并获取各 follower 的一些日志元信息.
     noop := &logFuture{log: Log{Type: LogNoop}} // 构造空日志条目
     r.dispatchLogs([]*logFuture{noop})           // 分发日志，触发复制流程
 
@@ -553,8 +935,6 @@ func (r *Raft) runLeader() {
     // 直到因选举超时、收到更高 Term RPC 等原因降级（step down）
     r.leaderLoop()
 }
-
-
 
 
 
@@ -588,7 +968,6 @@ func (r *Raft) leaderLoop() {
 		// 4.3 处理领导权转移（Leadership Transfer）请求：手动切换 Leader
 		case future := <-r.leadershipTransferCh:
         // .....忽略非核心代码......
-
 
 
 		// 4.4 处理日志提交事件（commitCh）：有新日志被多数派确认
@@ -729,8 +1108,6 @@ func (r *Raft) leaderLoop() {
     - **客户端生成唯一 ID：** 客户端为每个请求生成一个唯一的 ID（例如 UUID）。
     - **服务器跟踪 ID：** 服务器跟踪已处理的请求 ID。如果收到具有相同 ID 的重复请求，服务器可以直接返回之前的结果，而无需重新执行操作。
     - **状态机：** 在应用层，状态机可以记录已执行的请求 ID，以避免重复执行。
-
-
 
 
 
