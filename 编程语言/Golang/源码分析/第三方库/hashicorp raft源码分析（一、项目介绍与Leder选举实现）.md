@@ -873,13 +873,13 @@ func (r *Raft) runCandidate() {
 
 `runLeader` 为 leader 领导者的核心处理方法. 进入该函数说明当前节点为 leader.
 
-1. `startStopReplication` 启动各个 follower 的 replication, 开启心跳 heartbeat 和同步 replicate 协程.
+1. **`startStopReplication` 启动各个 follower 的 replication, 开启心跳 heartbeat 和同步 replicate 协程.**
 2. 构建一个 LogNoop 空日志, 然后通过 `dispatchLogs` 方法发给所有的 follower 副本. 这里的空日志用来向 follower 通知确认 leader, 并获取各 follower 的一些日志元信息.
-3. `leaderLoop` 为 leader 的主调度循环.
+3. `leaderLoop` 为 leader 的主调度循环.**响应 Follower 的复制进度、处理新的客户端请求、复制日志、管理集群配置变更、处理领导权转移、定期验证自身的 Leader 身份，并在需要时触发降级。**
 
 ```go
 // runLeader 运行 Raft 节点处于 Leader（领导者）状态时的主逻辑。
-// 它首先进行 Leader 状态的初始化设置，然后进入 leaderLoop 热循环，持续处理集群管理工作。
+// 它首先进行 Leader 状态的初始化设置，然后进入 leaderLoop 循环，持续处理集群管理工作。
 func (r *Raft) runLeader() {
    // 1. 日志记录：节点进入 Leader 状态，并附带当前 Leader 实例信息
     r.logger.Info("entering leader state", "leader", r)
@@ -935,9 +935,199 @@ func (r *Raft) runLeader() {
     // 直到因选举超时、收到更高 Term RPC 等原因降级（step down）
     r.leaderLoop()
 }
+```
 
 
 
+#### startStopReplication
+
+启动日志复制机制：启动各个 follower 的 replication, 开启心跳 heartbeat 和同步日志.
+
+为什么需要 leader 给 follower 发送心跳 ? raft 论文里有说明, 当 follower 在一段时间内收不到 leader 的心跳请求时, 则判定 leader 有异常, 切换到 candidate 进行选举 election.
+
+关于replicate 如何进行日志复制，将在下一篇文章介绍
+
+```go
+func (r *Raft) startStopReplication() {
+	for _, server := range r.configurations.latest.Servers {
+		// server 为本实例无需启动 replication 复制副本.
+		if server.ID == r.localID {
+			continue
+		}
+
+		s, ok := r.leaderState.replState[server.ID]
+		if !ok {
+			s = &followerReplication{
+				...
+			}
+
+			r.leaderState.replState[server.ID] = s
+
+			// 启动 replication 复制副本
+			r.goFunc(func() { r.replicate(s) })
+		}
+	}
+}
+
+func (r *Raft) replicate(s *followerReplication) {
+	...
+
+	// 启动一个 heartbeat 心跳协程
+	r.goFunc(func() { r.heartbeat(s, stopHeartbeat) })
+	...
+	...
+}
+// replicate 是一个长期运行的 goroutine，负责心跳机制和将日志条目（log entries）复制到 单个 follower 节点。
+func (r *Raft) replicate(s *followerReplication) {
+	// 步骤 1：启动异步心跳线程
+	// 创建一个停止信号通道，用于终止心跳 goroutine
+	stopHeartbeat := make(chan struct{})
+	// 函数结束时关闭该通道，确保心跳 goroutine 退出
+	defer close(stopHeartbeat)
+
+	// 启动一个 heartbeat 心跳协程
+	// 心跳用于维持 Leader 身份、避免选举超时，但不携带日志数据
+	r.goFunc(func() {
+		// 调用 r.heartbeat 函数，定期发送 AppendEntries RPC（空日志）
+		r.heartbeat(s, stopHeartbeat)
+	})
+
+	// RPC 模式（标准复制模式）
+	// 在此模式下，Leader 逐条确认（Stop-and-Wait） follower 的日志复制结果
+RPC:
+	// 控制变量：标记是否应该停止复制循环
+	shouldStop := false
+	for !shouldStop {
+		select {
+        // .....忽略非核心代码......
+            
+		// 情况 3：收到主动触发信号（立即同步日志）
+		case <-s.triggerCh:
+			// 获取最新日志索引
+			lastLogIdx, _ := r.getLastLog()
+			// 调用 replicateTo 同步日志到最新位置
+			shouldStop = r.replicateTo(s, lastLogIdx)
+
+        // .....忽略非核心代码......
+
+		// 性能优化判断：是否切换到 Pipeline 模式？
+		// 1. 当前复制 未出错（!shouldStop）
+		// 2. 允许 Pipeline 模式（s.allowPipeline=true）
+		if !shouldStop && s.allowPipeline {
+			// 跳转到 PIPELINE 标签处，进入流式复制逻辑
+			goto PIPELINE
+		}
+	}
+	// 如果循环退出（shouldStop=true），直接结束 replicate 函数
+	return
+
+	// PIPELINE 模式（流式复制，高性能）
+	// 在此模式下，Leader 连续发送日志、不等待确认（类似 TCP 滑动窗口）
+PIPELINE:
+
+	s.allowPipeline = false
+
+	// 进入 pipelineReplicate 函数：
+	// 它会：
+	// 1. 持续发送 AppendEntries RPC **不等待响应**
+	// 2. 通过 TCP 连接批量流式发送日志，提高吞吐量
+	// 注意：此模式 **无法优雅处理错误**，一旦出错就回退到 RPC 模式
+	if err := r.pipelineReplicate(s); err != nil {
+      // .....忽略非核心代码......
+	}
+
+	// 无论成功与否，Pipeline 失败后都回到 RPC 模式
+	// 即：重新启用逐条确认机制，确保健壮性
+	goto RPC
+}
+```
+
+
+
+#### **leaderLoop**
+
+`leaderLoop` 是 Leader 状态下的大脑，它不断监听和处理各种事件，核心职责包括：**响应 Follower 的复制进度、处理新的客户端请求、复制日志、管理集群配置变更、处理领导权转移、定期验证自身的 Leader 身份，并在需要时触发降级。**
+
+1. **初始化:**
+
+   - 设置一个 `stepDown` 标志，用于标记 Leader 是否因配置变更（尤其是移除自身）等原因需要降级。
+   - 初始化 Leader Lease（租约）计时器，用于定期验证 Leader 身份。
+
+2. **进入主循环:**
+
+   - 节点进入一个无限循环，只要其状态保持为 `Leader` 就会持续运行。
+
+3. **事件驱动处理:** 在循环中，通过 `select` 语句监听多个通道，处理来自外部或内部的各种事件：
+
+   - 接收 RPC 请求 (`rpcCh`):
+
+     处理来自其他节点的 RPC，包括：
+
+     - Follower 对 Leader 发送的 AppendEntries RPC 的响应（确认日志复制进度）。
+     - 来自其他节点的 RequestVote RPC（如果发现更高任期，Leader 会立即降级为 Follower）。
+     - 其他可能的 RPC。
+
+   - 内部降级信号 (`leaderState.stepDown`): 收到信号后，Leader 立即转为 Follower 状态，并退出循环。
+
+   - 领导权转移请求 (`leadershipTransferCh`):
+
+     - 处理手动触发的领导权转移请求。
+     - 检查是否已有转移正在进行。
+     - 选择或确认目标 Follower。
+     - 启动一个后台协程来执行转移逻辑（通常涉及等待日志同步并向目标 Follower 发送 TimeoutNow RPC）。
+     - 设置标志防止并行转移，并处理超时或 Leader 自身降级的情况。
+
+   - 日志提交通知 (`leaderState.commitCh`):
+
+     - 当有日志条目被多数节点复制成功（达到可提交状态）时收到此通知。
+     - 更新 Leader 的 `commitIndex`（已提交日志的最大索引）。
+     - 检查是否有新的配置变更日志被提交，如果 Leader 自己被移除，则设置 `stepDown` 标志。
+     - 从待提交队列 (`inflight`) 中找出所有已落后于 `commitIndex` 的日志。
+     - **批量应用日志:** 将这些已提交的日志批量应用到状态机 (FSM - State Machine)，处理其副作用（如配置变更执行）。
+     - 清理已应用的日志。
+     - 如果 `stepDown` 标志被设置，根据配置选择关闭节点或降级为 Follower。
+
+   - Leader 验证请求 (`verifyCh`):
+
+     - 这是 Leader Lease 机制的一部分。Leader 定期向 Follower 发送验证请求。
+     - 处理来自验证请求的响应。如果未能获得多数节点的确认，说明可能已有新的 Leader 出现，当前 Leader 降级为 Follower。
+
+   - **用户快照恢复请求 (`userRestoreCh`):** 处理从用户提供的快照恢复状态的请求。
+
+   - **获取配置请求 (`configurationsCh`):** 处理客户端获取当前集群配置的请求。
+
+   - 配置变更请求 (`configurationChangeChIfStable()`):
+
+     - 处理添加或移除节点等集群配置变更请求。
+     - 将配置变更作为特殊的日志条目追加到 Raft 日志中，并像普通日志一样复制和提交。
+
+   - **引导请求 (`bootstrapCh`):** 拒绝运行时的引导请求，因为 Raft 只在初始状态允许引导。
+
+   - 新日志条目请求 (`applyCh`):
+
+     - 处理来自客户端的新的命令或数据请求。
+     - **批量提交优化:** 尝试从通道中一次性读取多个待处理的客户端请求，进行批量处理。
+     - 如果 `stepDown` 标志已设置，拒绝新的日志请求。
+     - 将这些新的请求封装成日志条目，追加到 Leader 的日志中。
+     - **分发日志:** 将这些新日志条目分发（通过 AppendEntries RPC）给所有 Follower，驱动日志复制过程。
+
+   - Leader Lease 计时器超时 (`lease`):
+
+     - 定期触发 Leader Lease 检查。
+     - 调用 `checkLeaderLease` 方法验证 Leader 身份。
+     - 根据检查结果调整下一个租约检查的间隔，并重置计时器。
+     - 如果租约验证失败，也可能触发降级。
+
+   - **通知通道 (`leaderNotifyCh`, `followerNotifyCh`):** 用于唤醒等待特定事件的内部协程。
+
+   - **关机信号 (`shutdownCh`):** 收到信号后，Leader 退出循环并停止运行。
+
+4. **退出:** 循环在以下情况下退出：
+
+   - Leader 状态改变为 Follower（因发现更高任期、收到降级信号、Leader Lease 验证失败或自身被移除）。
+   - 节点收到关机信号。
+
+```go
 // leaderLoop 是 Leader 状态下的核心循环。
 // 它在 Leader 所有初始化设置完成后被调用，负责处理日志复制、心跳、成员管理等核心逻辑。
 func (r *Raft) leaderLoop() {
@@ -1040,41 +1230,93 @@ func (r *Raft) leaderLoop() {
 
 		// 4.5 处理成员验证请求（verifyCh）：检查 Leader 是否仍然有效
 		case v := <-r.verifyCh:
-			r.mainThreadSaturation.working()
-			if v.quorumSize == 0 {
-				// 初始状态：启动验证流程（向 Follower 发送验证 RPC）
-				r.verifyLeader(v)
-			} else if v.votes < v.quorumSize {
-				// 验证失败：说明已有新 Leader，当前 Leader 降级
-				// Early return, means there must be a new leader
-				r.logger.Warn("new leader elected, stepping down")
-				r.setState(Follower)
-				delete(r.leaderState.notify, v)
-				for _, repl := range r.leaderState.replState {
-					repl.cleanNotify(v)
-				}
-				v.respond(ErrNotLeader)
-
-			} else {
-				// Quorum of members agree, we are still leader
-				delete(r.leaderState.notify, v)
-				for _, repl := range r.leaderState.replState {
-					repl.cleanNotify(v)
-				}
-				v.respond(nil)
-			}
-           
-            
+                    // .....忽略非核心代码......
         // .....忽略非核心代码......
 		case <-r.shutdownCh:
 			return
 		}
 	}
 }
-
 ```
 
 
+
+#### dispatchLogs 日志调度派发
+
+`dispatchLogs` 用来记录本地日志以及派发日志给所有的 follower. 数据来源主要通过leedloop中的applyCh实现新的日志信息
+
+```
+// 处理客户端提交的日志条目（新命令）
+case newLog := <-r.applyCh:
+```
+
+1. **日志持久化**：
+   - 将日志写入本地磁盘，确保日志的持久化。如果写入失败，Leader 节点会降级为 Follower 节点，并通知调用者操作失败。
+2. **状态更新**：
+   - commitment.match 来计算各个 server 的 matchIndex, 计算出 commit 提交索引.
+   - 更新 Leader 节点的匹配索引（`match index`），表示本地节点已成功存储日志。
+   - 更新 Leader 节点的最后日志索引和任期信息。
+3. **触发日志复制**：
+   - 异步通知所有 Follower 节点的复制器，触发日志复制流程，确保日志被同步到集群中的其他节点。
+
+```go
+// dispatchLogs 是 Raft 协议中 Leader 节点用于处理日志分发的核心方法，
+// 它的主要功能是将一批待应用的日志写入本地磁盘，标记这些日志为“飞行中”（inflight），
+// 并开始将这些日志复制到 Follower 节点。
+func (r *Raft) dispatchLogs(applyLogs []*logFuture) {
+        // 记录方法开始执行的时间，用于后续性能指标的统计
+        now := time.Now()
+        // 使用 defer 延迟执行性能指标的统计，计算方法执行的总耗时
+        defer metrics.MeasureSince([]string{"raft", "leader", "dispatchLog"}, now)
+
+        // 获取当前 Leader 的任期（term），用于标记新日志的任期信息
+        term := r.getCurrentTerm()
+        // 获取当前日志的最后索引（lastIndex），用于为新日志分配连续的索引号
+        lastIndex := r.getLastIndex()
+
+        n := len(applyLogs)        // 获取待分发的日志数量
+        logs := make([]*Log, n)        // 创建一个日志切片，用于存储待写入磁盘的日志条目
+        // 设置性能指标：记录当前分发的日志数量
+        metrics.SetGauge([]string{"raft", "leader", "dispatchNumLogs"}, float32(n))
+
+        // 遍历待分发的日志，为每条日志设置索引、任期和时间戳，并标记为“飞行中”
+        for idx, applyLog := range applyLogs {
+                applyLog.dispatch = now                // 设置日志的调度时间戳，表示日志开始被分发的时间
+                lastIndex++                // 为日志分配新的索引号，递增 lastIndex
+                applyLog.log.Index = lastIndex                // 设置日志的索引号
+                applyLog.log.Term = term                // 设置日志的任期号为当前 Leader 的任期
+                applyLog.log.AppendedAt = now               // 设置日志的追加时间戳，表示日志被追加到日志存储的时间
+                logs[idx] = &applyLog.log                // 将日志条目存储到 logs 切片中，准备写入磁盘
+                r.leaderState.inflight.PushBack(applyLog)                // 将日志标记为“飞行中”，表示该日志正在被处理（尚未被所有节点确认）
+        }
+
+        // 将日志条目写入本地磁盘，确保日志持久化
+        if err := r.logs.StoreLogs(logs); err != nil {
+                // 如果写入失败，记录错误日志
+                r.logger.Error("failed to commit logs", "error", err)
+                // 遍历所有待分发的日志，通知调用者写入失败
+                for _, applyLog := range applyLogs {
+                        applyLog.respond(err)
+                }
+                // 如果日志写入失败，Leader 节点主动降级为 Follower 节点，避免继续处理请求
+                r.setState(Follower)
+                return
+        }
+        // 如果日志成功写入本地磁盘，更新 Leader 节点的匹配索引（match index），
+        // 表示本地节点已经成功存储了这些日志
+        r.leaderState.commitment.match(r.localID, lastIndex)
+
+        // 更新 Leader 节点的最后日志索引和任期信息，表示最新的日志状态
+        r.setLastLog(lastIndex, term)
+
+        // 通知所有 Follower 节点的复制器（replicator），触发日志复制
+        // 遍历 Leader 节点维护的每个 Follower 节点的复制状态
+        for _, f := range r.leaderState.replState {
+                // 异步通知复制器的触发通道（triggerCh），启动日志复制流程
+                asyncNotifyCh(f.triggerCh)
+        }
+}
+```
 
 
 
