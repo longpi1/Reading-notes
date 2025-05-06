@@ -425,11 +425,6 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
 			var prevLog Log
 			// 尝试获取 PrevLogEntry 索引处的日志条目
 			if err := r.logs.GetLog(a.PrevLogEntry, &prevLog); err != nil {
-				// 获取日志失败（例如：索引不存在、存储错误）
-				r.logger.Warn("failed to get previous log",
-					"previous-index", a.PrevLogEntry, // 记录 Leader 请求的前一个索引
-					"last-index", lastIdx, // 记录当前节点的最后一个索引
-					"error", err) // 记录错误信息
 				// 这种情况下，Leader应该回退并发送更早的日志，所以设置 NoRetryBackoff = true
 				resp.NoRetryBackoff = true
 				return
@@ -437,12 +432,8 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
 			prevLogTerm = prevLog.Term // 获取到日志条目，记录其Term
 		}
 
-		// 对比 Leader 的 PrevLogTerm 和当前节点 PrevLogEntry 索引处的日志条目的Term
+		// 如果请求体中上次 term 跟当前 term 不一致, 则直接写失败.
 		if a.PrevLogTerm != prevLogTerm {
-			// Term 不匹配，说明日志在 PrevLogEntry 处发生了分歧。
-			r.logger.Warn("previous log term mis-match",
-				"ours", prevLogTerm, // 记录当前节点的Term
-				"remote", a.PrevLogTerm) // 记录 Leader 发送的Term
 			// Term 不匹配时，Leader 需要回退并发送更早的日志，所以设置 NoRetryBackoff = true
 			resp.NoRetryBackoff = true
 			return
@@ -472,10 +463,6 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
 			var storeEntry Log
 			// 尝试从存储中获取当前索引的日志条目
 			if err := r.logs.GetLog(entry.Index, &storeEntry); err != nil {
-				// 获取日志失败 (这不应该发生，如果索引 <= lastLogIdx 但获取失败，可能是存储问题或其他错误)
-				r.logger.Warn("failed to get log entry",
-					"index", entry.Index, // 记录尝试获取的索引
-					"error", err) // 记录错误信息
 				return
 			}
 
@@ -507,8 +494,6 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
 		if n := len(newEntries); n > 0 {
 			// 将新条目追加到日志存储中。
 			if err := r.logs.StoreLogs(newEntries); err != nil {
-				r.logger.Error("failed to append to logs", "error", err)
-				// TODO: 如果上面发生了日志截断，而这里追加失败，r.getLastLog() 可能会处于错误的状态。
 				return
 			}
 
@@ -516,9 +501,6 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
 			for _, newEntry := range newEntries {
 				// 对于每个新追加的条目，检查它是否是配置变更条目，并进行处理。
 				if err := r.processConfigurationLogEntry(newEntry); err != nil {
-					r.logger.Warn("failed to append entry",
-						"index", newEntry.Index, // 记录处理失败的条目索引
-						"error", err) // 记录错误信息
 					rpcErr = err // 记录RPC错误
 					return
 				}
