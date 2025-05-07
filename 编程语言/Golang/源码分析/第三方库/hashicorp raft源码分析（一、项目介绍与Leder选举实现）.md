@@ -128,6 +128,8 @@ func (r *Raft) run() {
 
 ### 1.1 follower跟随者运行逻辑
 
+![image.png](https://s2.loli.net/2025/05/07/NjagbyHPXGUzTS9.png)
+
 #### 主要处理逻辑：
 
 - **接收 RPC 请求 (`<-r.rpcCh`):** 这是 Follower 接收外部通信的主要方式。当收到 RPC 时，将其交给 `r.processRPC` 方法处理。Follower 主要处理以下几种 RPC：
@@ -546,8 +548,6 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
 }
 ```
 
-### 
-
 ##### 处理 RequestVoteRequest 投票请求
 
 `requestVote` 函数处理来自其他 Raft 节点（候选者）的 RequestVote RPC 请求。其核心逻辑是根据 Raft 协议的选举规则决定是否授予投票。
@@ -707,7 +707,9 @@ func (r *Raft) requestVote(rpc RPC, req *RequestVoteRequest) {
 
 ### 1.2 candidate 候选者运行逻辑
 
-主要流程步骤：
+![image.png](https://s2.loli.net/2025/05/07/Zp6afYKFX7dlncs.png)
+
+#### 主要流程步骤：
 
 1. **任期更新与初始化：**
    - 节点将当前任期（Term）加一，进入新的任期进行选举。
@@ -737,6 +739,8 @@ func (r *Raft) requestVote(rpc RPC, req *RequestVoteRequest) {
      - 节点关闭 (`r.shutdownCh`)： 收到关闭信号，退出循环和函数。
 5. **退出处理：**
    - 无论通过哪种方式退出 `runCandidate` 函数（成为 Follower、成为 Leader、shutdown、选举超时），都会执行 `defer` 中设置的逻辑，将 `candidateFromLeadershipTransfer` 标志重置为 false，防止其影响后续的选举行为。
+
+#### 相关源码：
 
 ```go
 // 在 Raft 算法中，当 Follower 心跳超时且满足选举条件时，会进入 Candidate 状态，尝试成为 Leader。
@@ -853,11 +857,17 @@ func (r *Raft) runCandidate() {
 
 ### 1.3 leader 领导者运行逻辑
 
+![image.png](https://s2.loli.net/2025/05/07/FHPBKpWatAlVrTb.png)
+
+#### 主要逻辑：
+
 `runLeader` 为 leader 领导者的核心处理方法. 进入该函数说明当前节点为 leader.
 
 1. **`startStopReplication` 启动各个 follower 的 replication, 开启心跳 heartbeat 和同步 replicate 协程.**
 2. 构建一个 LogNoop 空日志, 然后通过 `dispatchLogs` 方法发给所有的 follower 副本. 这里的空日志用来向 follower 通知确认 leader, 并获取各 follower 的一些日志元信息.
 3. `leaderLoop` 为 leader 的主调度循环.**响应 Follower 的复制进度、处理新的客户端请求、复制日志、管理集群配置变更、处理领导权转移、定期验证自身的 Leader 身份，并在需要时触发降级。**
+
+#### 相关源码：
 
 ```go
 // runLeader 运行 Raft 节点处于 Leader（领导者）状态时的主逻辑。
@@ -921,7 +931,7 @@ func (r *Raft) runLeader() {
 
 
 
-#### startStopReplication
+##### startStopReplication
 
 启动日志复制机制：启动各个 follower 的 replication, 开启心跳 heartbeat 和同步日志.
 
@@ -1026,7 +1036,7 @@ PIPELINE:
 
 
 
-#### **leaderLoop**
+##### **leaderLoop**
 
 `leaderLoop` 是 Leader 状态下的大脑，它不断监听和处理各种事件，核心职责包括：**响应 Follower 的复制进度、处理新的客户端请求、复制日志、管理集群配置变更、处理领导权转移、定期验证自身的 Leader 身份，并在需要时触发降级。**
 
@@ -1223,7 +1233,7 @@ func (r *Raft) leaderLoop() {
 
 
 
-#### dispatchLogs 日志调度派发
+##### dispatchLogs 日志调度派发
 
 `dispatchLogs` 用来记录本地日志以及派发日志给所有的 follower. 数据来源主要通过leedloop中的applyCh实现新的日志信息
 
