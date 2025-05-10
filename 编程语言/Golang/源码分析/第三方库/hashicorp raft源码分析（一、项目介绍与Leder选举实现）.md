@@ -1223,6 +1223,45 @@ func (r *Raft) leaderLoop() {
 		// 4.5 处理成员验证请求（verifyCh）：检查 Leader 是否仍然有效
 		case v := <-r.verifyCh:
                     // .....忽略非核心代码......
+        // 处理客户端提交的日志条目（新命令）
+		case newLog := <-r.applyCh:
+			r.mainThreadSaturation.working()
+
+			// 检查领导权转移状态
+			if r.getLeadershipTransferInProgress() {
+				r.logger.Debug(ErrLeadershipTransferInProgress.Error())
+				newLog.respond(ErrLeadershipTransferInProgress)
+				continue
+			}
+
+			// **批量提交（Group Commit）优化**：
+			// 先将第一个日志条目放入待提交数组
+			ready := []*logFuture{newLog}
+
+		GROUP_COMMIT_LOOP:
+			// 尝试在短时间内尽可能多地收集更多待提交日志（批量处理）
+			for i := 0; i < r.config().MaxAppendEntries; i++ {
+				select {
+				// 非阻塞尝试从 applyCh 读取更多日志
+				case newLog := <-r.applyCh:
+					// 追加到待提交数组
+					ready = append(ready, newLog)
+				default:
+					// 如果没有更多日志可读，则跳出循环
+					break GROUP_COMMIT_LOOP
+				}
+			}
+
+			// 判断当前节点是否正在 **降级为 follower（stepDown=true）**
+			if stepDown {
+				// 若是，则拒绝处理新日志，回应“当前不是 Leader”
+				for i := range ready {
+					ready[i].respond(ErrNotLeader)
+				}
+			} else {
+				// 否则，统一 **分发这些日志条目** 到 Raft 状态机处理（复制到 followers）
+				r.dispatchLogs(ready)
+			}
         // .....忽略非核心代码......
 		case <-r.shutdownCh:
 			return
@@ -1237,7 +1276,7 @@ func (r *Raft) leaderLoop() {
 
 `dispatchLogs` 用来记录本地日志以及派发日志给所有的 follower. 数据来源主要通过leedloop中的applyCh实现新的日志信息
 
-```
+```go
 // 处理客户端提交的日志条目（新命令）
 case newLog := <-r.applyCh:
 ```
@@ -1253,7 +1292,7 @@ case newLog := <-r.applyCh:
 
 ```go
 // dispatchLogs 是 Raft 协议中 Leader 节点用于处理日志分发的核心方法，
-// 它的主要功能是将一批待应用的日志写入本地磁盘，标记这些日志为“飞行中”（inflight），
+// 它的主要功能是将一批待应用的日志写入本地磁盘，标记这些日志为“inflight”（inflight），
 // 并开始将这些日志复制到 Follower 节点。
 func (r *Raft) dispatchLogs(applyLogs []*logFuture) {
         // 记录方法开始执行的时间，用于后续性能指标的统计
@@ -1271,7 +1310,7 @@ func (r *Raft) dispatchLogs(applyLogs []*logFuture) {
         // 设置性能指标：记录当前分发的日志数量
         metrics.SetGauge([]string{"raft", "leader", "dispatchNumLogs"}, float32(n))
 
-        // 遍历待分发的日志，为每条日志设置索引、任期和时间戳，并标记为“飞行中”
+        // 遍历待分发的日志，为每条日志设置索引、任期和时间戳，并标记为“inflight”
         for idx, applyLog := range applyLogs {
                 applyLog.dispatch = now                // 设置日志的调度时间戳，表示日志开始被分发的时间
                 lastIndex++                // 为日志分配新的索引号，递增 lastIndex
