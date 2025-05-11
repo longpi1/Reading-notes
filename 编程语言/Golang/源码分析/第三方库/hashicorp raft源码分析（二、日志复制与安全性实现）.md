@@ -422,9 +422,7 @@ SEND_SNAP:
 
 `setupAppendEntries` 方法会把日志数据和其他元数据装载到 `AppendEntriesRequest` 对象里.
 
-下面是 `AppendEntriesRequest` 的数据结构.
-
-```
+```go
 type AppendEntriesRequest struct {
 	// rpc proto 和 leader 信息.
 	RPCHeader
@@ -446,10 +444,9 @@ type AppendEntriesRequest struct {
 
 `setupAppendEntries` 用来构建 `AppendEntriesRequest` 对象, 这里不仅当前节点的最新 log 信息, 还有 follower nextIndex 的上一条 log 日志数据, 还有新增的 log 日志数据.
 
-```
+```go
 // setupAppendEntries is used to setup an append entries request.
 func (r *Raft) setupAppendEntries(s *followerReplication, req *AppendEntriesRequest, nextIndex, lastIndex uint64) error {
-	// 赋值 rpc header
 	req.RPCHeader = r.getRPCHeader()
 	// 赋值当前的 term 任期号
 	req.Term = s.currentTerm
@@ -471,13 +468,11 @@ func (r *Raft) setupAppendEntries(s *followerReplication, req *AppendEntriesRequ
 }
 ```
 
-
-
 `setPreviousLog` 用来获取 follower 的 nextIndex 的上一条数据, 如果在快照临界点, 则使用快照记录的 index 和 term, 否则其他情况调用 LogStore 存储的 GetLog 获取上一条日志.
 
-需要注意一下, 如果上一条数据的 index 在 logStore 不存在, 那么就需要返回错误, 后面走发送快照逻辑了.
+**需要注意一下, 如果上一条数据的 index 在 logStore 不存在, 那么就需要返回错误, 后面走发送快照逻辑了.**
 
-```
+```go
 func (r *Raft) setPreviousLog(req *AppendEntriesRequest, nextIndex uint64) error {
 	// 获取快照文件中最大日志的 index 和 term.
 	lastSnapIdx, lastSnapTerm := r.getLastSnapshot()
@@ -495,7 +490,6 @@ func (r *Raft) setPreviousLog(req *AppendEntriesRequest, nextIndex uint64) error
 	} else {
 		var l Log
 		// 从 LogStore 存储获取上一条日志数据.
-		// 关于 raft LogStore 的具体实现, 后面专门讲解其实现原理.
 		if err := r.logs.GetLog(nextIndex-1, &l); err != nil {
 			// 如果日志不存在, 说明是在 snapshot 快照文件中.
 			return err
@@ -509,11 +503,9 @@ func (r *Raft) setPreviousLog(req *AppendEntriesRequest, nextIndex uint64) error
 }
 ```
 
-
-
 `setNewLogs` 用来获取 nextIndex 到 lastIndex 之间的增量数据, 为避免一次传递太多的数据, 这里限定单次不能超过 MaxAppendEntries 条日志.
 
-```
+```go
 // setNewLogs is used to setup the logs which should be appended for a request.
 func (r *Raft) setNewLogs(req *AppendEntriesRequest, nextIndex, lastIndex uint64) error {
 	maxAppendEntries := r.config().MaxAppendEntries
@@ -533,15 +525,11 @@ func (r *Raft) setNewLogs(req *AppendEntriesRequest, nextIndex, lastIndex uint64
 }
 ```
 
-
-
 #### updateLastAppended
-
-
 
 `updateLastAppended` 用来更新记录 follower 的 nextIndex 值, 另外还会调用 `commitment.match` 改变 commit 记录, 并通知让状态机应用.
 
-每个 follower 在同步完数据后, 都需要调用一次 `updateLastAppended`, 不仅更新 follower nextIndex, 更重要的是更新 commitIndex 提交索引值, `commitment.match` 内部检测到 commit 发生变动时, 向 commitCh 提交通知, 最后由 leaderLoop 检测到 commit 通知, 并调用状态机 fsm 应用.
+每个 follower 在同步完数据后, 都需要调用一次 `updateLastAppended`, 不仅更新 follower nextIndex, 更重要的是更新 commitIndex 提交索引值, **`commitment.match` 内部检测到 commit 发生变动时, 向 commitCh 提交通知, 最后由 leaderLoop 检测到 commit 通知, 并调用状态机 fsm 应用.**
 
 在本地提交后, 当下次 replicate 同步数据时, 自然会携带更新后的 commitIndex, 在 follower 收到且经过判断对比后, 把数据更新自身的状态机里.
 
@@ -573,7 +561,7 @@ func updateLastAppended(s *followerReplication, req *AppendEntriesRequest) {
 
 `match` 通过计算各个 server 的 matchIndex 计算出 commitIndex. commitIndex 可以理解为法定的提交索引值. 对所有 server 的 matchIndex 进行排序, 然后使用 `matched[(len(matched)-1)/2]` 值作为 commitIndex. 这样比 commitIndex 小的 log index 会被推到 commitCh 管道里. 后面由 leaderLoop 进行消费, 然后调用 fsm 状态机进行应用日志.
 
-```
+```go
 func (c *commitment) match(server ServerID, matchIndex uint64) {
 	c.Lock()
 	defer c.Unlock()
@@ -620,7 +608,7 @@ func (c *commitment) recalculate() {
 
 hashicorp transport 层是使用 msgpack rpc 实现的, 其实现原理没什么可说的.
 
-```
+```go
 func (n *NetworkTransport) AppendEntries(id ServerID, target ServerAddress, args *AppendEntriesRequest, resp *AppendEntriesResponse) error {
 	return n.genericRPC(id, target, rpcAppendEntries, args, resp)
 }
@@ -652,162 +640,185 @@ func (n *NetworkTransport) genericRPC(id ServerID, target ServerAddress, rpcType
 }
 ```
 
-
-
-msgpack rpc 的协议报文格式如下.
+msgpack rpc 的协议报文格式如下:
 
 [![img](https://camo.githubusercontent.com/80b72338e79667fbac7153d5243207cec88836c6ca85020c3dbdd30e254b403e/68747470733a2f2f7869616f7275692d63632e6f73732d636e2d68616e677a686f752e616c6979756e63732e636f6d2f696d616765732f3230323330322f53616d706c65253230466c6f77636861727425323054656d706c6174652532302d322d2e6a7067)](https://camo.githubusercontent.com/80b72338e79667fbac7153d5243207cec88836c6ca85020c3dbdd30e254b403e/68747470733a2f2f7869616f7275692d63632e6f73732d636e2d68616e677a686f752e616c6979756e63732e636f6d2f696d616765732f3230323330322f53616d706c65253230466c6f77636861727425323054656d706c6174652532302d322d2e6a7067)
 
 ### follower 处理 appendEntries 日志同步
 
-`appendEntries()` 是用来处理来自 leader 发起的 appendEntries 请求. 其内部首先判断请求的日志是否可以用, 能用则保存日志到本地, 然后调用 `processLogs` 来通知 fsm 状态机应用日志.
+`appendEntries()` 是用来处理来自 leader 发起的 appendEntries 请求. 其内部首先判断请求的日志是否可以用, 能用则保存日志到本地**, 然后调用 `processLogs` 来通知 fsm 状态机应用日志.**
 
 如果请求的上条日志跟本实例最新日志不一致, 则返回失败. 而 leader 会根据 follower 返回结果, 获取 follower 最新的 log term 及 index, 然后再同步给 follower 缺失的日志. 另外当 follower 发现冲突日志时, 也会以 leader 的日志为准来覆盖修复产生冲突的日志.
 
 简单说 `appendEntries()` 同步日志是 leader 和 follower 不断调整位置再同步数据的过程.
 
-```
+```go
+// appendEntries 在收到AppendEntries RPC调用时被触发。
+// 这个函数必须只在Raft的主线程（事件循环）中调用，以避免并发问题。
 func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
-	// 实例化返回结构
+	// 使用 metrics 记录 appendEntries RPC 处理的时间。
+	defer metrics.MeasureSince([]string{"raft", "rpc", "appendEntries"}, time.Now())
+
+	// 初始化 AppendEntries 响应结构体。
+	// 默认设置为失败，并包含当前节点的Term和最后一个日志条目的索引。
 	resp := &AppendEntriesResponse{
-		RPCHeader:      r.getRPCHeader(),
-		Term:           r.getCurrentTerm(),
-		LastLog:        r.getLastIndex(),
-		Success:        false, // 默认为失败, 只有最后才赋值为 true.
-		NoRetryBackoff: false,
+		RPCHeader:      r.getRPCHeader(),   // 获取标准的RPC头部信息
+		Term:           r.getCurrentTerm(), // 响应中包含当前节点的Term
+		LastLog:        r.getLastIndex(),   // 响应中包含当前节点的最后一个日志索引
+		Success:        false,              // 初始设置为失败
+		NoRetryBackoff: false,              // 初始设置为允许重试退避
 	}
-	var rpcErr error
+	var rpcErr error // 用于存储处理过程中可能发生的错误
+
+	// 使用 defer 确保在函数退出前发送响应。
 	defer func() {
 		rpc.Respond(resp, rpcErr)
 	}()
 
-	// 如果请求的 term 比当前的小, 则直接忽略.
+	// 规则 1: 如果请求的Term小于当前节点的Term，则忽略该请求。
+	// Leader的Term比Follower旧，说明该Leader已失效。
 	if a.Term < r.getCurrentTerm() {
-		return
+		return // 直接返回，不处理旧Term的AppendEntries
 	}
 
-	// 如果请求的 term 比当前 term 大或者当前不是 follower 状态, 则切到 follower 角色. 并且更新当前 term.
-	if a.Term > r.getCurrentTerm() || (r.getState() != Follower && !r.candidateFromLeadershipTransfer) {
+	// 规则 2: 如果请求的Term大于当前节点的Term，或者当前节点不是Follower且不是正在进行领导权转移的Candidate，则更新Term，并转换为Follower状态。
+	// 这是Raft的核心规则：看到更高的Term总是意味着过时，必须回退到Follower状态。
+	if a.Term > r.getCurrentTerm() || (r.getState() != Follower && !r.candidateFromLeadershipTransfer.Load()) {
 		r.setState(Follower)
 		r.setCurrentTerm(a.Term)
-		resp.Term = a.Term
+		resp.Term = a.Term // 更新响应中的Term为新的当前Term
 	}
 
-	// 在当前节点保存 leader 信息.
+	// 记录Leader的地址和ID。
 	if len(a.Addr) > 0 {
 		r.setLeader(r.trans.DecodePeer(a.Addr), ServerID(a.ID))
 	} else {
 		r.setLeader(r.trans.DecodePeer(a.Leader), ServerID(a.ID))
 	}
 
-	// 检查对比请求的上一条 prev 日志跟本地日志的 index 和 term 是否一样, 
-	// 不一致, 则说明缺失了多条日志.
-	if a.PrevLogEntry > 0 {
-		lastIdx, lastTerm := r.getLastEntry()
+	// 规则 3: 验证前一个日志条目的匹配性（Log Consistency Check）。
+	// Leader在AppendEntries请求中包含新条目紧前一个条目的索引(PrevLogEntry)和Term(PrevLogTerm)。
+	// Follower必须检查自己日志中对应索引的条目Term是否与Leader一致。
+	if a.PrevLogEntry > 0 { // PrevLogEntry == 0 表示这是第一个日志条目，不需要检查前一个
+		lastIdx, lastTerm := r.getLastEntry() // 获取当前节点的最后一个日志条目索引和Term
 
-		var prevLogTerm uint64
+		var prevLogTerm uint64 // 用于存储当前节点 PrevLogEntry 索引处的日志条目的Term
 		if a.PrevLogEntry == lastIdx {
-			prevLogTerm = lastTerm
-
+			// 如果 Leader 的 PrevLogEntry 恰好是当前节点的最后一个日志条目
+			prevLogTerm = lastTerm // 直接使用最后一个日志条目的Term
 		} else {
+			// 如果 Leader 的 PrevLogEntry 不是当前节点的最后一个日志条目，需要从日志存储中获取
 			var prevLog Log
+			// 尝试获取 PrevLogEntry 索引处的日志条目
 			if err := r.logs.GetLog(a.PrevLogEntry, &prevLog); err != nil {
+				// 这种情况下，Leader应该回退并发送更早的日志，所以设置 NoRetryBackoff = true
+				resp.NoRetryBackoff = true
 				return
 			}
-			prevLogTerm = prevLog.Term
+			prevLogTerm = prevLog.Term // 获取到日志条目，记录其Term
 		}
 
 		// 如果请求体中上次 term 跟当前 term 不一致, 则直接写失败.
 		if a.PrevLogTerm != prevLogTerm {
+			// Term 不匹配时，Leader 需要回退并发送更早的日志，所以设置 NoRetryBackoff = true
+			resp.NoRetryBackoff = true
 			return
 		}
 	}
 
-	// 把日志持久化到本地
+	// 规则 4: 处理新的日志条目。
+	// 如果请求中包含新的日志条目 (a.Entries)
 	if len(a.Entries) > 0 {
-		// ...
-		// 清理冲突的日志
-		// 保存日志到本地
-	}
+		start := time.Now() // 记录开始处理日志条目的时间
 
-	// 如果有新日志, 则把日志持久化到本地
-	if len(a.Entries) > 0 {
-		start := time.Now()
+		// 删除任何冲突的条目，并跳过任何重复的条目。
+		lastLogIdx, _ := r.getLastLog() // 获取当前节点的最后一个日志索引 (可能与 getLastEntry 不同，取决于实现细节，这里用于比较)
+		var newEntries []*Log           // 用于存放真正需要追加的新条目
 
-		// 删除发生冲突的日志
-
-		// 获取当前最后日志的 index
-		lastLogIdx, _ := r.getLastLog()
-		var newEntries []*Log
-
-		// 遍历 req.Entries 中的日志
+		// 遍历 Leader 发送的日志条目
 		for i, entry := range a.Entries {
-			// 如果发现 index 比最后一条日志 index 大, 则重新赋值并中断.
-			// 正常 case 下, 新日志必然要比最后一条日志大.
+			// 如果当前 Leader 条目的索引大于当前节点的最后一个日志索引，
+			// 说明从这里开始的所有条目都是 Leader 新增的，可以直接追加。
 			if entry.Index > lastLogIdx {
-				newEntries = a.Entries[i:]
-				break
+				newEntries = a.Entries[i:] // 将剩余的条目标记为需要追加的新条目
+				break                      // 跳出循环，后续只处理 newEntries
 			}
 
-			// 如果日志 index 在 LogStore 不存在, 则退出.
+			// 如果 Leader 条目的索引不大于当前节点的最后一个日志索引，
+			// 说明当前节点可能已经有了这个索引的条目，需要检查是否冲突。
 			var storeEntry Log
+			// 尝试从存储中获取当前索引的日志条目
 			if err := r.logs.GetLog(entry.Index, &storeEntry); err != nil {
-				r.logger.Warn("failed to get log entry",
-					"index", entry.Index,
-					"error", err)
 				return
 			}
 
-			// 如果遍历到的 entry term 跟 LogStore 中不一致, 则尝试进行清理冲突.
+			// 对比 Leader 条目的Term和当前节点对应索引条目的Term
 			if entry.Term != storeEntry.Term {
-				// 调用 LogStore 的范围删除 DeleteRange 方法进行范围删除.
+				// 删除从冲突索引到最后一个索引的日志范围
 				if err := r.logs.DeleteRange(entry.Index, lastLogIdx); err != nil {
+					// 删除日志失					r.logger.Error("failed to clear log suffix", "error", err)
 					return
 				}
+				// 如果被删除的范围包含最新的配置变更日志条目，需要回退最新的配置信息
 				if entry.Index <= r.configurations.latestIndex {
+					// 将最新的配置设置为已提交的配置，索引也回退到已提交的索引
 					r.setLatestConfiguration(r.configurations.committed, r.configurations.committedIndex)
 				}
+				// 从当前冲突的条目开始，Leader 的所有条目都视为新的，需要追加。
 				newEntries = a.Entries[i:]
-				break
+				break // 跳出循环，后续只处理 newEntries
 			}
+			// 如果索引小于等于 lastLogIdx 且 Term 匹配，说明这个条目是重复的，已经被 Follower 拥有且一致。
+			// 继续循环检查下一个 Leader 条目。
 		}
 
-		// 上面是删除冲突的日志, 下面是保存新增的日志.
+		// 如果有需要追加的新条目 (newEntries 列表不为空)
 		if n := len(newEntries); n > 0 {
-			// 保存日志
+			// 将新条目追加到日志存储中。
 			if err := r.logs.StoreLogs(newEntries); err != nil {
-				r.logger.Error("failed to append to logs", "error", err)
 				return
 			}
 
-			// 更新日志配置
+			// 处理任何新的配置变更日志条目。 需要在日志条目追加到存储后处理配置变更。
 			for _, newEntry := range newEntries {
+				// 对于每个新追加的条目，检查它是否是配置变更条目，并进行处理。
 				if err := r.processConfigurationLogEntry(newEntry); err != nil {
-					rpcErr = err
+					rpcErr = err // 记录RPC错误
 					return
 				}
 			}
 
-			// 更新 LastLog
-			last := newEntries[n-1]
-			r.setLastLog(last.Index, last.Term)
+			// 更新当前节点的最后一个日志索引和Term，基于实际追加的最后一个条目。
+			last := newEntries[n-1]             // 获取追加的最后一个条目
+			r.setLastLog(last.Index, last.Term) // 更新节点的 lastLog 状态
 		}
 	}
 
-	// 更新并提交日志到 FSM
+	// 规则 5: 更新当前节点的提交索引 (Commit Index)。
+	// Leader 在 AppendEntries 请求中包含自己的提交索引 (LeaderCommitIndex)。
+	// Follower 必须将自己的提交索引更新为 min(Leader 的提交索引, 自己最后一个日志条目的索引)。
 	if a.LeaderCommitIndex > 0 && a.LeaderCommitIndex > r.getCommitIndex() {
-		// 求最小
+		start := time.Now() // 记录开始处理提交的时间
+		// 计算新的提交索引：取 Leader 的提交索引和当前节点最后一个日志索引的最小值。
 		idx := min(a.LeaderCommitIndex, r.getLastIndex())
+		// 更新当前节点的提交索引。
 		r.setCommitIndex(idx)
 
-		// 把 commitIndex 之前的日志提交到状态机 FSM 进行应用日志.
-		r.processLogs(idx, nil)
+		// 如果最新的配置变更日志条目索引小于等于新的提交索引，则表示该配置变更已提交。
+		if r.configurations.latestIndex <= idx {
+			// 将最新的配置设置为已提交的配置，并更新已提交的索引。
+			r.setCommittedConfiguration(r.configurations.latest, r.configurations.latestIndex)
+		}
+
+		// 重点把 commitIndex 之前的日志提交到状态机 FSM 进行应用日志.。
+		// 从旧的提交索引开始（或0）处理到新的提交索引 idx。
+		r.processLogs(idx, nil) // nil 表示应用到默认的状态机 (或这里没有特定的应用函数)
 	}
 
-	// 日志同步成功
+	// 如果执行到这里没有返回错误或因为旧Term/日志不匹配而提前返回，说明 AppendEntries 成功。
 	resp.Success = true
+	// 记录最后一次与Leader成功通信的时间。这用于重置选举超时定时器。
 	r.setLastContact()
-	return
 }
 ```
 
@@ -817,80 +828,176 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
 
 不管是 Leader 和 Follower 都会调用状态机 FSM 来应用日志. 其流程是先调用 `processLogs` 来打包批量日志, 然后将日志推到 `fsmMutateCh` 管道里, 最后由 `runFSM` 协程来监听该管道, 并把日志应用到状态机里面.
 
-```
+```go
+// processLogs 用于应用所有尚未应用的已提交日志条目，直到给定的索引上限。
+// 该方法可以被领导者（Leader）和跟随者（Follower）调用。
+// 1. 跟随者通过 AppendEntries 方法调用此函数，一次处理 n 条日志条目，且总是传递 futures=nil。
+// 2. 领导者在日志条目被提交时调用此函数，并传递来自任何正在处理中的日志的 futures。
 func (r *Raft) processLogs(index uint64, futures map[uint64]*logFuture) {
+	// 获取当前已经应用的最后一个日志条目的索引
 	lastApplied := r.getLastApplied()
+
+	// 如果传入的索引小于或等于已应用的最后一个索引，说明这些日志已经被应用，跳过处理
 	if index <= lastApplied {
+		// 记录警告日志，表示正在跳过已应用的旧日志
+		r.logger.Warn("skipping application of old log", "index", index)
 		return
 	}
 
-	// 匿名函数, 把 batch 日志推到队列 fsmMutateCh 中.
+	// 定义 applyBatch 函数，用于将一批日志条目提交给状态机（FSM）进行处理
 	applyBatch := func(batch []*commitTuple) {
 		select {
 		case r.fsmMutateCh <- batch:
+			// 将批次日志发送到状态机的通道中，由状态机负责实际应用这些日志
 		case <-r.shutdownCh:
-			// ...
+			// 如果 Raft 实例正在关闭，则遍历批次中的每个日志条目
+			for _, cl := range batch {
+				// 如果该日志条目有关联的 future（即异步操作的回调），则通知其 Raft 已关闭
+				if cl.future != nil {
+					cl.future.respond(ErrRaftShutdown)
+				}
+			}
 		}
 	}
 
-	// 打包的单个批次最多 maxAppendEntries 条日志, 这根 replicate 一样.
+	// 获取配置中的 MaxAppendEntries 参数，表示一次最多可以处理的日志条目数量
 	maxAppendEntries := r.config().MaxAppendEntries
+
+	// 创建一个批次容器，用于存储待提交给状态机的日志条目
 	batch := make([]*commitTuple, 0, maxAppendEntries)
 
+	// 遍历从 lastApplied+1 到 index 的所有日志条目，逐一处理
 	for idx := lastApplied + 1; idx <= index; idx++ {
 		var preparedLog *commitTuple
+		// 检查是否存在与当前索引对应的 future（即领导者传递的正在处理的日志条目）
 		future, futureOk := futures[idx]
 		if futureOk {
+			// 如果存在 future，则从 future 中提取日志条目并进行预处理
+			// prepareLog 方法会将日志条目封装为 commitTuple 结构，供状态机处理
 			preparedLog = r.prepareLog(&future.log, future)
 		} else {
+			// 如果没有 future，则从日志存储（log store）中获取对应索引的日志条目
 			l := new(Log)
 			if err := r.logs.GetLog(idx, l); err != nil {
+				// 如果获取日志失败，记录错误日志并触发 panic，因为这通常表示系统状态不一致
 				r.logger.Error("failed to get log", "index", idx, "error", err)
 				panic(err)
 			}
+			// 对从日志存储中获取的日志条目进行预处理，注意这里没有 future
 			preparedLog = r.prepareLog(l, nil)
 		}
 
+		// 根据预处理结果进行不同的处理
 		switch {
 		case preparedLog != nil:
-			// 把 preparedLog 推到 batch 切片里.
+			// 如果日志条目已经成功预处理（即 preparedLog 不为空），则将其加入批次容器
+			// 该日志条目将被发送到状态机线程进行处理，状态机会负责调用 future 的回调
 			batch = append(batch, preparedLog)
 
-			// 如果满足了 maxAppendEntries 单条最大限制, 直接调用 applyBatch.
+			// 如果当前批次的大小达到或超过 maxAppendEntries，则提交该批次
 			if len(batch) >= maxAppendEntries {
 				applyBatch(batch)
-				// 新建一个新的 batch 对象, 这里不能单单把旧 batch len 重置.
+				// 提交后清空批次容器，并重新分配容量为 maxAppendEntries 的新容器
 				batch = make([]*commitTuple, 0, maxAppendEntries)
 			}
 
 		case futureOk:
+			// 如果存在 future 但 preparedLog 为空，说明该日志条目无需应用到状态机
+			// 直接调用 future 的回调函数通知操作完成（通常用于某些特殊类型的日志，如配置变更）
 			future.respond(nil)
 		}
 	}
 
-	// 进行收尾, 把 batch 剩余的日志也都扔到队列中.
+	// 如果循环结束后批次容器中仍有未提交的日志条目，则提交剩余的批次
 	if len(batch) != 0 {
 		applyBatch(batch)
 	}
 
-	// 更新最后的 apply log 的 index 和 term.
+	// 更新 lastApplied 索引，表示所有日志条目已应用到给定的 index
 	r.setLastApplied(index)
 }
 ```
 
+#### runFSM
 
+**主要作用 (Main Purpose):**
 
-`runFSM` 用来监听需要提交的日志, 并把日志交给状态机应用. 当 type 为 restoreFuture, 则需要恢复由 leader 发送过来的快照文件.
+`runFSM` 是一个长期运行的 goroutine（协程），它 **专门负责将已提交的日志条目应用到用户提供的有限状态机 (FSM)**。它还负责处理 FSM 的快照创建和恢复操作。
+其核心设计目的是将 FSM 的操作（可能是耗时的 I/O 操作或复杂计算）与 Raft 核心的共识逻辑 **异步隔离** 开来。这样做可以防止 FSM 的潜在阻塞影响 Raft 内部的及时性和性能，例如心跳、选举、日志复制等关键操作。
 
-> 关于 raft snapshot 快照和日志的具体实现原理, 后面会专门出一篇来分析.
+`runFSM` 方法的核心逻辑是一个无限循环，通过 `select` 监听多个通道，处理不同类型的请求。以下是其主要流程的分解：
 
-```
+1. **初始化和准备**
+
+   - 定义 `lastIndex` 和 `lastTerm`，用于跟踪状态机已应用的最后一个日志条目的索引和任期。
+   - 检查状态机是否支持批处理（`BatchingFSM` 接口）和配置存储（`ConfigurationStore` 接口），以决定后续处理方式。
+
+2. **定义核心处理函数**
+   方法内部定义了几个关键的处理函数，用于处理不同的请求类型：
+
+   - `applySingle`
+
+     ：处理单个日志条目。
+
+     - 判断日志类型（`LogCommand` 或 `LogConfiguration`），分别调用状态机的 `Apply` 或 `StoreConfiguration` 方法。
+     - 更新 `lastIndex` 和 `lastTerm`。
+     - 如果日志条目有关联的 `future`，则通过 `future` 返回响应。
+
+   - `applyBatch`
+
+     ：处理一批日志条目。
+
+     - 如果状态机支持批处理（`BatchingFSM`），则过滤出需要发送的日志条目（仅 `LogCommand` 和 `LogConfiguration` 类型），批量调用 `ApplyBatch`。
+     - 如果状态机不支持批处理，则逐个调用 `applySingle`。
+     - 更新 `lastIndex` 和 `lastTerm`。
+     - 为每个日志条目关联的 `future` 返回响应。
+
+   - `restore`
+
+     ：从快照恢复状态机。
+
+     - 打开指定的快照文件，读取元数据和内容。
+     - 调用状态机的恢复方法（`Restore`），将快照数据加载到状态机。
+     - 更新 `lastIndex` 和 `lastTerm`。
+     - 通过 `future` 返回操作结果。
+
+   - `snapshot`
+
+     ：生成状态机快照。
+
+     - 检查是否有新的日志需要快照（如果 `lastIndex` 为 0，则返回错误）。
+     - 调用状态机的 `Snapshot` 方法生成快照。
+     - 通过 `future` 返回快照对象和操作结果。
+
+3. **主循环监听通道**
+   主循环通过 `select` 监听以下通道，处理不同的请求：
+
+   - `r.fsmMutateCh`
+
+     ：处理日志应用或状态机恢复请求。
+
+     - 如果收到的是 `[]*commitTuple`，则调用 `applyBatch` 批量应用日志。
+     - 如果收到的是 `restoreFuture`，则调用 `restore` 从快照恢复状态机。
+
+   - `r.fsmSnapshotCh`
+
+     ：处理快照生成请求。
+
+     - 调用 `snapshot` 生成状态机快照。
+
+   - `r.shutdownCh`
+
+     ：监听 Raft 关闭信号。
+
+     - 如果收到关闭信号，则退出 goroutine。
+
+```go
 func (r *Raft) runFSM() {
 	var lastIndex, lastTerm uint64
 
 	batchingFSM, batchingEnabled := r.fsm.(BatchingFSM)
 	configStore, configStoreEnabled := r.fsm.(ConfigurationStore)
-
+	// 处理单个日志条目。
 	applySingle := func(req *commitTuple) {
 		var resp interface{}
 		...
@@ -909,7 +1016,7 @@ func (r *Raft) runFSM() {
 		lastIndex = req.log.Index
 		lastTerm = req.log.Term
 	}
-
+// 处理一批日志条目。
 	applyBatch := func(reqs []*commitTuple) {
 		// 如果用户实现了 BatchingFSM 接口, 则说明允许批量应用日志.
 		// 没实现, 则说明没开启该功能.
@@ -948,7 +1055,7 @@ func (r *Raft) runFSM() {
 			// ...
 		}
 	}
-
+// 从快照恢复状态机
 	restore := func(req *restoreFuture) {
 		// 根据 request id 获取已保存本地的快照文件
 		meta, source, err := r.snapshots.Open(req.ID)
@@ -968,7 +1075,7 @@ func (r *Raft) runFSM() {
 		lastTerm = meta.Term
 		req.respond(nil)
 	}
-
+	// 生成状态机快照。
 	snapshot := func(req *reqSnapshotFuture) {
 		// ...
 	}
@@ -1000,11 +1107,7 @@ func (r *Raft) runFSM() {
 
 ## 二、总结
 
-其实过程简单老说就是, 上层写日志, leader 同步日志, follower 接收日志, leader 确认提交日志, follower 跟着提交日志.
-
-
-
-
+上述过程简单来说就是, 上层写日志, leader 同步日志, follower 接收日志, leader 确认提交日志, follower 跟着提交日志.
 
 
 
@@ -1036,8 +1139,6 @@ func (r *Raft) runFSM() {
     - **客户端生成唯一 ID：** 客户端为每个请求生成一个唯一的 ID（例如 UUID）。
     - **服务器跟踪 ID：** 服务器跟踪已处理的请求 ID。如果收到具有相同 ID 的重复请求，服务器可以直接返回之前的结果，而无需重新执行操作。
     - **状态机：** 在应用层，状态机可以记录已执行的请求 ID，以避免重复执行。
-
-
 
 
 

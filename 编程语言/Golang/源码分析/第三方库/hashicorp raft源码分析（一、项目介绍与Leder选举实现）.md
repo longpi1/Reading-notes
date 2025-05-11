@@ -16,11 +16,7 @@
 
 - **Raft** 是一种**分布式一致性算法**（Consensus Algorithm），用于在分布式系统（如集群、多节点存储系统）中保证**数据一致性**和**高可用性**。
 
-- 相比 Paxos 更
-
-  易理解、易实现
-
-  ，Raft 将一致性问题分解为：
+- 相比 Paxos 更易理解、易实现，Raft 将一致性问题分解为：
 
   1. **Leader 选举（Leader Election）**：集群中选出一个 Leader 节点负责日志复制。
   2. **日志复制（Log Replication）**：Leader 接收客户端写请求，记录到自己的日志，并**同步**到 Follower 节点。
@@ -470,13 +466,9 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
 
 			// 对比 Leader 条目的Term和当前节点对应索引条目的Term
 			if entry.Term != storeEntry.Term {
-				// 如果Term不匹配，说明从当前索引开始，日志发生了分歧。
-				// 规则：删除当前节点从该索引开始的所有后续条目。
-				r.logger.Warn("clearing log suffix", "from", entry.Index, "to", lastLogIdx)
 				// 删除从冲突索引到最后一个索引的日志范围
 				if err := r.logs.DeleteRange(entry.Index, lastLogIdx); err != nil {
-					// 删除日志失败
-					r.logger.Error("failed to clear log suffix", "error", err)
+					// 删除日志失					r.logger.Error("failed to clear log suffix", "error", err)
 					return
 				}
 				// 如果被删除的范围包含最新的配置变更日志条目，需要回退最新的配置信息
@@ -512,9 +504,6 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
 			last := newEntries[n-1]             // 获取追加的最后一个条目
 			r.setLastLog(last.Index, last.Term) // 更新节点的 lastLog 状态
 		}
-
-		// 记录存储日志条目所花费的时间。
-		metrics.MeasureSince([]string{"raft", "rpc", "appendEntries", "storeLogs"}, start)
 	}
 
 	// 规则 5: 更新当前节点的提交索引 (Commit Index)。
@@ -533,12 +522,9 @@ func (r *Raft) appendEntries(rpc RPC, a *AppendEntriesRequest) {
 			r.setCommittedConfiguration(r.configurations.latest, r.configurations.latestIndex)
 		}
 
-		// 将已提交的日志条目应用到状态机。
+		// 重点把 commitIndex 之前的日志提交到状态机 FSM 进行应用日志.。
 		// 从旧的提交索引开始（或0）处理到新的提交索引 idx。
 		r.processLogs(idx, nil) // nil 表示应用到默认的状态机 (或这里没有特定的应用函数)
-
-		// 记录处理已提交日志所花费的时间。
-		metrics.MeasureSince([]string{"raft", "rpc", "appendEntries", "processLogs"}, start)
 	}
 
 	// 如果执行到这里没有返回错误或因为旧Term/日志不匹配而提前返回，说明 AppendEntries 成功。
