@@ -424,7 +424,7 @@ SEND_SNAP:
 
 下面是 `AppendEntriesRequest` 的数据结构.
 
-```
+```go
 type AppendEntriesRequest struct {
 	// rpc proto 和 leader 信息.
 	RPCHeader
@@ -446,10 +446,9 @@ type AppendEntriesRequest struct {
 
 `setupAppendEntries` 用来构建 `AppendEntriesRequest` 对象, 这里不仅当前节点的最新 log 信息, 还有 follower nextIndex 的上一条 log 日志数据, 还有新增的 log 日志数据.
 
-```
+```go
 // setupAppendEntries is used to setup an append entries request.
 func (r *Raft) setupAppendEntries(s *followerReplication, req *AppendEntriesRequest, nextIndex, lastIndex uint64) error {
-	// 赋值 rpc header
 	req.RPCHeader = r.getRPCHeader()
 	// 赋值当前的 term 任期号
 	req.Term = s.currentTerm
@@ -471,13 +470,11 @@ func (r *Raft) setupAppendEntries(s *followerReplication, req *AppendEntriesRequ
 }
 ```
 
-
-
 `setPreviousLog` 用来获取 follower 的 nextIndex 的上一条数据, 如果在快照临界点, 则使用快照记录的 index 和 term, 否则其他情况调用 LogStore 存储的 GetLog 获取上一条日志.
 
-需要注意一下, 如果上一条数据的 index 在 logStore 不存在, 那么就需要返回错误, 后面走发送快照逻辑了.
+**需要注意一下, 如果上一条数据的 index 在 logStore 不存在, 那么就需要返回错误, 后面走发送快照逻辑了.**
 
-```
+```go
 func (r *Raft) setPreviousLog(req *AppendEntriesRequest, nextIndex uint64) error {
 	// 获取快照文件中最大日志的 index 和 term.
 	lastSnapIdx, lastSnapTerm := r.getLastSnapshot()
@@ -495,7 +492,6 @@ func (r *Raft) setPreviousLog(req *AppendEntriesRequest, nextIndex uint64) error
 	} else {
 		var l Log
 		// 从 LogStore 存储获取上一条日志数据.
-		// 关于 raft LogStore 的具体实现, 后面专门讲解其实现原理.
 		if err := r.logs.GetLog(nextIndex-1, &l); err != nil {
 			// 如果日志不存在, 说明是在 snapshot 快照文件中.
 			return err
@@ -509,11 +505,9 @@ func (r *Raft) setPreviousLog(req *AppendEntriesRequest, nextIndex uint64) error
 }
 ```
 
-
-
 `setNewLogs` 用来获取 nextIndex 到 lastIndex 之间的增量数据, 为避免一次传递太多的数据, 这里限定单次不能超过 MaxAppendEntries 条日志.
 
-```
+```go
 // setNewLogs is used to setup the logs which should be appended for a request.
 func (r *Raft) setNewLogs(req *AppendEntriesRequest, nextIndex, lastIndex uint64) error {
 	maxAppendEntries := r.config().MaxAppendEntries
@@ -533,11 +527,7 @@ func (r *Raft) setNewLogs(req *AppendEntriesRequest, nextIndex, lastIndex uint64
 }
 ```
 
-
-
 #### updateLastAppended
-
-
 
 `updateLastAppended` 用来更新记录 follower 的 nextIndex 值, 另外还会调用 `commitment.match` 改变 commit 记录, 并通知让状态机应用.
 
