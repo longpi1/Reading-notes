@@ -422,6 +422,11 @@ SEND_SNAP:
 
 `setupAppendEntries` 方法会把日志数据和其他元数据装载到 `AppendEntriesRequest` 对象里.
 
+<<<<<<< HEAD
+=======
+下面是 `AppendEntriesRequest` 的数据结构.
+
+>>>>>>> 9b3512f2a905a8e159992324edb4cfebd3829e6e
 ```go
 type AppendEntriesRequest struct {
 	// rpc proto 和 leader 信息.
