@@ -1,4 +1,4 @@
-![image](https://github.com/user-attachments/assets/71c09712-342d-4d17-99cf-db4837d6a4de)# Kafka常见的面试题
+# Kafka常见的面试题
 
 > 主要内容转载自 Java3y 的 [Kafka常见的面试题](https://mp.weixin.qq.com/s/uUFgZqfeBvfAfr47bQ3JYw)
 
