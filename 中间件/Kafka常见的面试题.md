@@ -1,4 +1,4 @@
-# Kafka常见的面试题
+![image](https://github.com/user-attachments/assets/71c09712-342d-4d17-99cf-db4837d6a4de)# Kafka常见的面试题
 
 > 主要内容转载自 Java3y 的 [Kafka常见的面试题](https://mp.weixin.qq.com/s/uUFgZqfeBvfAfr47bQ3JYw)
 
@@ -445,6 +445,7 @@ controller_epoch 的**初始值为1**，即集群中的第一个控制器的纪�
 
 ![图片](https://mmbiz.qpic.cn/mmbiz_png/9dwzhvuGc8aWYuDJqPy8WZ4CzSd6cUxtN2kg7qWcDbrC3WwpYJfzLAmKvKRr6IrfhFlaYwNJibxsyeAWXVYdRicQ/640?wx_fmt=png&wxfrom=5&wx_lazy=1&wx_co=1)
 
+
 - **1.顺序读写**
 
   磁盘分为顺序读写与随机读写，基于磁盘的随机读写确实很慢，但磁盘的顺序读写性能却很高，kafka 这里采用的就是顺序读写。
@@ -456,6 +457,8 @@ controller_epoch 的**初始值为1**，即集群中的第一个控制器的纪�
 - **3.零拷贝**
 
   Kafka使用了零拷贝技术，也就是**直接将数据从内核空间的读缓冲区直接拷贝到内核空间的 socket 缓冲区**，然后再写入到 NIC 缓冲区，避免了在内核空间和用户空间之间穿梭，通过sendfile系统调用（https://xiaolincoding.com/os/8_network_system/zero_copy.html#sendfile）。
+  ![image](https://github.com/user-attachments/assets/7a0d5312-9c9d-4d1e-8baa-85e993bfec05)
+
 
 - **4.分区分段+索引**
 
