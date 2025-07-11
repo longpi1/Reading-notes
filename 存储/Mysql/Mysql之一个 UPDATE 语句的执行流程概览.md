@@ -1,4 +1,4 @@
-### 一、一个 `UPDATE` 语句的执行流程概览
+# 一个 `UPDATE` 语句的执行流程概览
 
 假设我们执行这样一条 SQL： `UPDATE users SET age = age + 1 WHERE id = 10;`
 
@@ -16,7 +16,7 @@
 
 ------
 
-### 二、深入 InnoDB 存储引擎的更新过程
+### 一、深入 InnoDB 存储引擎的更新过程
 
 现在，执行的“指挥棒”交给了 InnoDB 引擎。这是 redo log 和 binlog 发挥作用的核心地带。
 
@@ -48,7 +48,7 @@
 
 ------
 
-### 三、Redo Log 与 Binlog 的协同：两阶段提交 (Two-Phase Commit, 2PC)
+### 二、Redo Log 与 Binlog 的协同：两阶段提交 (Two-Phase Commit, 2PC)
 
 上面流程中的第 4、5、6 步，就是著名的“两阶段提交”机制。这是为了保证 **redo log (InnoDB 层)** 和 **binlog (Server 层)** 这两个日志的数据一致性。
 
@@ -85,9 +85,11 @@
 
 **通过这种方式，redo log 和 binlog 的状态永远保持了一致，从而保证了数据库状态的一致性，尤其是主从复制的可靠性。**
 
+这里组提交就不再详细介绍了
+
 ------
 
-### 四、Redo Log、Binlog 与事务提交的关系总结
+### 三、Redo Log、Binlog 与事务提交的关系总结
 
 - **事务提交的标志**：一个事务被认为**最终提交成功**的标志是 **redo log 被标记为 `commit` 状态**。
 - 时间线：
