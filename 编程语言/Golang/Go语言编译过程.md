@@ -12,7 +12,7 @@ Go语言的编译过程主要可以分为以下几个核心阶段：
 
 1. **词法分析 (Lexical Analysis)：** 将源代码分解成一个个的词法单元 (tokens)。
 2. **语法分析 (Syntax Analysis)：** 将词法单元组织成抽象语法树 (Abstract Syntax Tree, AST)。
-3. **类型检查 (Type Checking)：** 检查代码的类型约束，确保类型安全。
+3. **类型检查 (Type Checking)也就是语义分析：** 检查代码的类型约束，确保类型安全。
 4. **中间代码生成 (Intermediate Representation Generation)：** 将AST转换成一种更易于优化的中间表示形式 (Static Single Assignment, SSA)。
 5. **代码优化 (Optimization)：** 对中间代码进行各种优化，提高代码执行效率。
 6. **机器码生成 (Code Generation)：** 将优化后的中间代码转换成特定目标平台的机器码。
