@@ -24,12 +24,11 @@
 
 ## 🐳 [编程语言](https://github.com/longpi1/Reading-notes/tree/main/编程语言)
 
-| Project | Version | Describe       |
-| :-----: | :-----: | :------------- |
-| Golang  |         | Golang相关知识 |
-|   PHP   |         |                |
-| Python  |         |                |
-|  Java   |         |                |
+|                           Project                            | Version | Describe       |
+| :----------------------------------------------------------: | :-----: | :------------- |
+| [Golang](https://github.com/longpi1/Reading-notes/tree/main/%E7%BC%96%E7%A8%8B%E8%AF%AD%E8%A8%80/Golang) |         | Golang相关知识 |
+|                            Python                            |         |                |
+| [Java](https://github.com/longpi1/Reading-notes/tree/main/%E7%BC%96%E7%A8%8B%E8%AF%AD%E8%A8%80/Java) |         |                |
 
 
 ----------------------------
@@ -61,21 +60,25 @@
 
 ----------------------------
 
-## 📝 [存储](https://github.com/longpi1/Reading-notes/tree/main/存储)
+## 📝 [中间件](https://github.com/longpi1/Reading-notes/tree/main/中间件)
 
-| Project | Version | Describe                    |
-| :-----: | :-----: | :-------------------------- |
-|  etcd   |   V3    | 关于etcd的设计以及具体实现  |
-|  Redis  |         | 关于Redis的设计以及具体实现 |
+|                           Project                            | Version | Describe                    |
+| :----------------------------------------------------------: | :-----: | :-------------------------- |
+| [存储/etcd](https://github.com/longpi1/Reading-notes/tree/main/%E5%AD%98%E5%82%A8/etcd) |   V3    | 关于etcd的设计以及具体实现  |
+| [存储/Redis](https://github.com/longpi1/Reading-notes/tree/main/%E5%AD%98%E5%82%A8/redis) |         | 关于Redis的设计以及具体实现 |
+| [存储/mysql](https://github.com/longpi1/Reading-notes/tree/main/%E5%AD%98%E5%82%A8/Mysql) |         |                             |
+| [存储/postgre](https://github.com/longpi1/Reading-notes/tree/main/%E5%AD%98%E5%82%A8/postgre) |         |                             |
+|                           消息队列                           |         |                             |
 
 ----------------------------
 
-## 📱 [技术框架](https://github.com/longpi1/Reading-notes/tree/main/技术框架)
+## 📱 [系统设计](https://github.com/longpi1/Reading-notes/tree/main/系统设计)
 
-| Project    | Version | Describe                      |
-| :--------: | :-----: | :---------------------------- |
-| RPC        |         | 关于RPC框架的设计以及具体实现 |
-| Serverless |         | 关于Serverless的入门与进阶    |
+|                           Project                            | Version | Describe                      |
+| :----------------------------------------------------------: | :-----: | :---------------------------- |
+| [RPC](https://github.com/longpi1/Reading-notes/tree/main/(https://github.com/longpi1/Reading-notes/tree/main/技术框架)/技术框架) |         | 关于RPC框架的设计以及具体实现 |
+|                             DDD                              |         | 关于领域设计介绍              |
+| [Serverless](https://github.com/longpi1/Reading-notes/tree/main/(https://github.com/longpi1/Reading-notes/tree/main/技术框架)/技术框架) |         | 关于Serverless的入门与进阶    |
 
 ----------------------------
 
